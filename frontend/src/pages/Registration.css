@@ -1,0 +1,76 @@
+.registration-page .reg-form {
+    max-width: 540px;
+    margin: 0 auto;
+}
+
+.members-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.member-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.member-row .input {
+    flex: 1;
+}
+
+.member-number {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    min-width: 20px;
+}
+
+.btn-add-member {
+    margin-top: 0.5rem;
+}
+
+.reg-success {
+    text-align: center;
+    padding: 2rem;
+}
+
+.reg-success-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.reg-success h3 {
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent-green);
+}
+
+.teams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.team-mini-card {
+    padding: 1rem;
+    font-size: 0.85rem;
+}
+
+.team-mini-card h4 {
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    color: var(--accent-cyan);
+}
+
+.team-mini-card .members {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.team-count-badge {
+    font-family: var(--font-mono);
+    color: var(--accent-purple);
+    font-size: 0.9rem;
+}

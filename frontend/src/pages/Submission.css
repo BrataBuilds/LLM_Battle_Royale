@@ -1,0 +1,162 @@
+.submission-page .login-card {
+    max-width: 460px;
+    margin: 0 auto;
+}
+
+/* ── Endpoint Card ────────────────────────────────────────────── */
+.team-info-card {
+    max-width: 800px;
+}
+
+.endpoint-url {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 0.6rem 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-sm);
+    color: var(--accent-cyan);
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.endpoint-result {
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    margin-bottom: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+.endpoint-result.success {
+    background: rgba(0, 255, 136, 0.08);
+    border: 1px solid rgba(0, 255, 136, 0.2);
+    color: var(--accent-green);
+}
+
+.endpoint-result.error {
+    background: rgba(255, 51, 102, 0.08);
+    border: 1px solid rgba(255, 51, 102, 0.2);
+    color: var(--accent-red);
+}
+
+.team-meta {
+    display: flex;
+    gap: 2rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* ── Round Results Grid ───────────────────────────────────────── */
+.rounds-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+}
+
+.round-result-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.round-result-card.completed {
+    border-color: rgba(0, 255, 136, 0.15);
+}
+
+.round-result-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.round-number {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 1.2rem;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.round-category {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+}
+
+.round-result-body {
+    min-height: 80px;
+}
+
+/* ── Response Preview ─────────────────────────────────────────── */
+.response-preview {
+    margin-bottom: 1rem;
+}
+
+.response-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+}
+
+.response-text {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    max-height: 60px;
+    overflow: hidden;
+}
+
+.response-error {
+    font-size: 0.8rem;
+    color: var(--accent-red);
+    margin-bottom: 1rem;
+}
+
+.response-waiting {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* ── Score Display ────────────────────────────────────────────── */
+.score-display-mini {
+    text-align: center;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm);
+}
+
+.score-num {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 2rem;
+}
+
+.score-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.score-reason {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .rounds-grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,0 +1,109 @@
+.participant-page .top-section {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+.participant-page .bracket-section {
+    margin-bottom: 2rem;
+}
+
+.participant-page .bottom-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+}
+
+.matchup-card {
+    text-align: center;
+    padding: 2rem;
+}
+
+.matchup-vs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    margin: 1.5rem 0;
+}
+
+.matchup-team {
+    flex: 1;
+    padding: 1.5rem;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+}
+
+.matchup-team.you {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 240, 255, 0.03);
+}
+
+.matchup-team-name {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.matchup-team-score {
+    font-family: var(--font-mono);
+    font-size: 2rem;
+    font-weight: 800;
+    margin-top: 0.5rem;
+}
+
+.matchup-vs-text {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--accent-magenta);
+    text-shadow: 0 0 20px rgba(255, 0, 170, 0.5);
+}
+
+.prompt-section {
+    padding: 1.5rem;
+}
+
+/* ── Live Status Banner ────────────────────────────────────────── */
+.participant-status {
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 1.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.participant-status.active {
+    background: rgba(0, 240, 255, 0.08);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    color: var(--accent-cyan);
+}
+
+.participant-status.done {
+    background: rgba(0, 255, 136, 0.08);
+    border: 1px solid rgba(0, 255, 136, 0.2);
+    color: var(--accent-green);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@media (max-width: 1024px) {
+    .participant-page .top-section {
+        grid-template-columns: 1fr;
+    }
+
+    .participant-page .bottom-section {
+        grid-template-columns: 1fr;
+    }
+}

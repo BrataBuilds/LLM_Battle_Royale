@@ -1,0 +1,60 @@
+.timer-container {
+    text-align: center;
+    padding: 1.5rem;
+}
+
+.timer-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.timer-display {
+    font-family: var(--font-mono);
+    font-size: 3.5rem;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--accent-cyan);
+    text-shadow: 0 0 30px rgba(0, 240, 255, 0.4);
+}
+
+.timer-display.warning {
+    color: var(--accent-yellow);
+    text-shadow: 0 0 30px rgba(255, 221, 0, 0.4);
+}
+
+.timer-display.critical {
+    color: var(--accent-red);
+    text-shadow: 0 0 30px rgba(255, 51, 102, 0.5);
+    animation: pulse 0.8s ease-in-out infinite;
+}
+
+.timer-display.ended {
+    color: var(--text-muted);
+    text-shadow: none;
+}
+
+.timer-bar-wrapper {
+    margin-top: 1rem;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.timer-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s linear;
+    background: var(--gradient-primary);
+}
+
+.timer-bar.warning {
+    background: var(--accent-yellow);
+}
+
+.timer-bar.critical {
+    background: var(--accent-red);
+}

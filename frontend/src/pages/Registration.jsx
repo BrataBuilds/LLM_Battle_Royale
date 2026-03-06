@@ -1,0 +1,194 @@
+import { useState, useEffect } from 'react';
+import { useWebSocket } from '../contexts/WebSocketContext';
+import './Registration.css';
+
+export default function Registration() {
+    const { subscribe } = useWebSocket();
+    const [teamName, setTeamName] = useState('');
+    const [members, setMembers] = useState(['']);
+    const [endpointUrl, setEndpointUrl] = useState('');
+    const [teams, setTeams] = useState([]);
+    const [success, setSuccess] = useState(null);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const fetchTeams = async () => {
+        try {
+            const res = await fetch('/api/teams');
+            const data = await res.json();
+            setTeams(data);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    useEffect(() => {
+        fetchTeams();
+        const unsub = subscribe('team_registered', () => fetchTeams());
+        return unsub;
+    }, [subscribe]);
+
+    const addMember = () => {
+        if (members.length < 4) setMembers([...members, '']);
+    };
+
+    const removeMember = (i) => {
+        if (members.length > 1) setMembers(members.filter((_, idx) => idx !== i));
+    };
+
+    const updateMember = (i, val) => {
+        const updated = [...members];
+        updated[i] = val;
+        setMembers(updated);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        const filteredMembers = members.filter((m) => m.trim());
+        if (!teamName.trim() || filteredMembers.length === 0) {
+            setError('Team name and at least one member are required');
+            setLoading(false);
+            return;
+        }
+        if (!endpointUrl.trim()) {
+            setError('LLM endpoint URL is required');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/teams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: teamName.trim(),
+                    members: filteredMembers,
+                    endpoint_url: endpointUrl.trim(),
+                }),
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Registration failed');
+            }
+
+            const team = await res.json();
+            setSuccess(team);
+            setTeamName('');
+            setMembers(['']);
+            setEndpointUrl('');
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="page-container registration-page">
+            <h1 className="page-title">Team Registration</h1>
+            <p className="page-subtitle">Register your team and LLM endpoint for the Battle Royale</p>
+
+            {success ? (
+                <div className="card reg-success animate-in">
+                    <div className="reg-success-icon">🎉</div>
+                    <h3>Team Registered!</h3>
+                    <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                        <strong>{success.name}</strong> is in the fight.
+                    </p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem', fontFamily: 'var(--font-mono)' }}>
+                        Endpoint: {success.endpoint_url}
+                    </p>
+                    <button className="btn btn-primary" onClick={() => setSuccess(null)}>
+                        Register Another Team
+                    </button>
+                </div>
+            ) : (
+                <div className="card reg-form animate-in">
+                    <form onSubmit={handleSubmit}>
+                        <div className="form-group">
+                            <label>Team Name</label>
+                            <input
+                                className="input"
+                                type="text"
+                                placeholder="Enter team name"
+                                value={teamName}
+                                onChange={(e) => setTeamName(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>LLM Endpoint URL</label>
+                            <input
+                                className="input"
+                                type="url"
+                                placeholder="https://your-llm-endpoint.com/generate"
+                                value={endpointUrl}
+                                onChange={(e) => setEndpointUrl(e.target.value)}
+                                required
+                                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                            />
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                                Your deployed LLM endpoint. Must accept POST with {`{"prompt": "..."}`} and return {`{"response": "..."}`}
+                            </p>
+                        </div>
+
+                        <div className="form-group">
+                            <label>Members (1-4)</label>
+                            <div className="members-list">
+                                {members.map((member, i) => (
+                                    <div className="member-row" key={i}>
+                                        <span className="member-number">{i + 1}.</span>
+                                        <input
+                                            className="input"
+                                            type="text"
+                                            placeholder={`Member ${i + 1} name`}
+                                            value={member}
+                                            onChange={(e) => updateMember(i, e.target.value)}
+                                            required
+                                        />
+                                        {members.length > 1 && (
+                                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeMember(i)}>✕</button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            {members.length < 4 && (
+                                <button type="button" className="btn btn-secondary btn-sm btn-add-member" onClick={addMember}>
+                                    + Add Member
+                                </button>
+                            )}
+                        </div>
+
+                        {error && <p style={{ color: 'var(--accent-red)', marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</p>}
+
+                        <button className="btn btn-primary" type="submit" disabled={loading}>
+                            {loading ? 'Registering...' : 'Register Team'}
+                        </button>
+                    </form>
+                </div>
+            )}
+
+            <div style={{ marginTop: '3rem' }}>
+                <h2 className="section-title">
+                    Registered Teams <span className="team-count-badge">({teams.length}/64)</span>
+                </h2>
+                <div className="teams-grid">
+                    {teams.map((team) => (
+                        <div className="card team-mini-card" key={team.id}>
+                            <h4>{team.name}</h4>
+                            <div className="members">{team.members.join(', ')}</div>
+                            <div style={{ marginTop: '0.4rem', fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {team.endpoint_url}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
