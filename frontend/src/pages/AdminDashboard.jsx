@@ -10,8 +10,22 @@ const SUB_ROUND_CATEGORIES = {
     3: 'General Knowledge',
 };
 
+function getToken() {
+    return sessionStorage.getItem('admin_token');
+}
+
+function authHeaders() {
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function AdminDashboard() {
     const { subscribe } = useWebSocket();
+    const [authenticated, setAuthenticated] = useState(!!getToken());
+    const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
+    const [loginLoading, setLoginLoading] = useState(false);
+
     const [appState, setAppState] = useState(null);
     const [prompt, setPrompt] = useState('');
     const [timerSeconds, setTimerSeconds] = useState(120);
@@ -20,10 +34,44 @@ export default function AdminDashboard() {
     const [selectedSubRound, setSelectedSubRound] = useState(1);
     const [battleStatus, setBattleStatus] = useState(null);
     const [statusMessage, setStatusMessage] = useState('');
+    const [questions, setQuestions] = useState({});
 
+    // ── Login ────────────────────────────────────────────────────
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setLoginError('');
+        setLoginLoading(true);
+        try {
+            const res = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setLoginError(data.detail || 'Login failed');
+                return;
+            }
+            sessionStorage.setItem('admin_token', data.token);
+            setAuthenticated(true);
+        } catch (err) {
+            setLoginError('Network error');
+        } finally {
+            setLoginLoading(false);
+        }
+    };
+
+    const handleLogout = () => {
+        sessionStorage.removeItem('admin_token');
+        setAuthenticated(false);
+        setAppState(null);
+    };
+
+    // ── Fetch state & questions ──────────────────────────────────
     const fetchState = useCallback(async () => {
         try {
-            const res = await fetch('/api/admin/state');
+            const res = await fetch('/api/admin/state', { headers: authHeaders() });
+            if (res.status === 401) { handleLogout(); return; }
             const data = await res.json();
             setAppState(data);
             if (data.current_bracket_round > 0) {
@@ -37,8 +85,29 @@ export default function AdminDashboard() {
         }
     }, []);
 
+    const fetchQuestions = useCallback(async () => {
+        try {
+            const res = await fetch('/api/admin/questions', { headers: authHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                setQuestions(data);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }, []);
+
+    // Auto-fill prompt when round/sub-round changes
     useEffect(() => {
+        const q = questions?.[selectedBracketRound]?.[selectedSubRound];
+        if (q) setPrompt(q);
+        else setPrompt('');
+    }, [selectedBracketRound, selectedSubRound, questions]);
+
+    useEffect(() => {
+        if (!authenticated) return;
         fetchState();
+        fetchQuestions();
         const unsubs = [
             subscribe('*', () => fetchState()),
             subscribe('sub_round_start', (data) => {
@@ -64,7 +133,6 @@ export default function AdminDashboard() {
                     setStatusMessage(`🚀 Auto-advanced to bracket round ${data.current_bracket_round}`);
                     setSelectedBracketRound(data.current_bracket_round);
                     setSelectedSubRound(1);
-                    setPrompt('');
                 }
             }),
             subscribe('champion', (data) => {
@@ -73,16 +141,19 @@ export default function AdminDashboard() {
             }),
         ];
         return () => unsubs.forEach(fn => fn());
-    }, [subscribe, fetchState]);
+    }, [subscribe, fetchState, fetchQuestions, authenticated]);
 
     const apiCall = async (url, method = 'POST', body = null) => {
         setLoading((prev) => ({ ...prev, [url]: true }));
         try {
+            const headers = { ...authHeaders() };
+            if (body) headers['Content-Type'] = 'application/json';
             const res = await fetch(url, {
                 method,
-                headers: body ? { 'Content-Type': 'application/json' } : {},
+                headers,
                 body: body ? JSON.stringify(body) : null,
             });
+            if (res.status === 401) { handleLogout(); return; }
             const data = await res.json();
             if (!res.ok) alert(data.detail || 'Error');
             await fetchState();
@@ -93,6 +164,31 @@ export default function AdminDashboard() {
             setLoading((prev) => ({ ...prev, [url]: false }));
         }
     };
+
+    // ── Login screen ─────────────────────────────────────────────
+    if (!authenticated) {
+        return (
+            <div className="page-container admin-page">
+                <div className="admin-login-gate">
+                    <h1 className="page-title">Admin Login</h1>
+                    <form onSubmit={handleLogin} className="admin-login-form">
+                        <input
+                            className="input"
+                            type="password"
+                            placeholder="Admin password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            autoFocus
+                        />
+                        <button className="btn btn-primary" type="submit" disabled={loginLoading || !password}>
+                            {loginLoading ? 'Logging in...' : 'Login'}
+                        </button>
+                        {loginError && <p className="login-error">{loginError}</p>}
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     if (!appState) return <div className="page-container"><p>Loading...</p></div>;
 
@@ -113,7 +209,10 @@ export default function AdminDashboard() {
 
     return (
         <div className="page-container admin-page">
-            <h1 className="page-title">Admin Dashboard</h1>
+            <div className="admin-title-row">
+                <h1 className="page-title">Admin Dashboard</h1>
+                <button className="btn btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
+            </div>
             <p className="page-subtitle">
                 🎮 {teams.length} Teams · {totalBracketRounds > 0 ? `${totalBracketRounds} Bracket Rounds` : 'Not started'}
                 {appState.champion && ' · 🏆 Champion crowned!'}

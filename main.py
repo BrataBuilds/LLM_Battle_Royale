@@ -2,7 +2,10 @@ import os
 from dotenv import load_dotenv
 
 # Load env vars before anything else
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+# Ensure logs directory exists
+os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware

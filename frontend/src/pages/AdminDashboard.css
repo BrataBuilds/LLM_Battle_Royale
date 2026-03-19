@@ -1,3 +1,37 @@
+/* ── Admin Login Gate ─────────────────────────────────────────── */
+
+.admin-login-gate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+}
+
+.admin-login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 320px;
+    margin-top: 1.5rem;
+}
+
+.login-error {
+    color: var(--accent-red, #ff4d6a);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+.admin-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+/* ── Grid & Layout ───────────────────────────────────────────── */
+
 .admin-page .admin-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

@@ -22,9 +22,6 @@ export default function Navbar() {
                 <NavLink to="/submit" className={({ isActive }) => `navbar-link ${isActive ? 'active' : ''}`}>
                     Team Status
                 </NavLink>
-                <NavLink to="/admin" className={({ isActive }) => `navbar-link ${isActive ? 'active' : ''}`}>
-                    Admin
-                </NavLink>
                 <div className={`ws-indicator ${isConnected ? 'connected' : 'disconnected'}`}
                     title={isConnected ? 'Connected' : 'Reconnecting...'} />
             </div>

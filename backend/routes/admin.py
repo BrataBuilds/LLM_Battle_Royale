@@ -1,19 +1,59 @@
 import asyncio
+import os
+import secrets
 import time
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header
 from backend.models import state, ScoreOverride, SubRoundConfig, SUB_ROUND_CATEGORIES
 from backend.gemini_judge import judge_submission
 from backend.ws_manager import manager
 from backend.bracket import seed_teams, generate_bracket, advance_winners, determine_match_winner
+from backend.logger import log_llm_fetch, log_judge_result
+from backend.questions import ROUND_QUESTIONS
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 _timer_task: asyncio.Task | None = None
+_admin_tokens: set[str] = set()
+
+
+# ── Admin Auth ──────────────────────────────────────────────────────
+
+def _get_admin_password() -> str:
+    pw = os.getenv("ADMIN_PASSWORD")
+    if not pw:
+        raise RuntimeError("ADMIN_PASSWORD not set in environment")
+    return pw
+
+
+async def verify_admin(authorization: str = Header(None)):
+    """Dependency that checks Bearer token on protected admin routes."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization.removeprefix("Bearer ").strip()
+    if token not in _admin_tokens:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+@router.post("/login")
+async def admin_login(data: dict):
+    """Authenticate admin with password, return a session token."""
+    password = data.get("password", "")
+    if password != _get_admin_password():
+        raise HTTPException(status_code=401, detail="Wrong password")
+    token = secrets.token_urlsafe(32)
+    _admin_tokens.add(token)
+    return {"token": token}
+
+
+@router.get("/questions")
+async def get_questions(_=Depends(verify_admin)):
+    """Return predefined round questions."""
+    return ROUND_QUESTIONS
 
 
 @router.get("/state")
-async def get_full_state():
+async def get_full_state(_=Depends(verify_admin)):
     """Full state dump for admin."""
     return state.to_dict()
 
@@ -21,7 +61,7 @@ async def get_full_state():
 # ── Seeding & Bracket ────────────────────────────────────────────────
 
 @router.post("/seed")
-async def seed(data: dict = None):
+async def seed(data: dict = None, _=Depends(verify_admin)):
     """Seed teams randomly or manually."""
     if len(state.teams) == 0:
         raise HTTPException(status_code=400, detail="No teams registered")
@@ -33,7 +73,7 @@ async def seed(data: dict = None):
 
 
 @router.post("/generate-bracket")
-async def gen_bracket():
+async def gen_bracket(_=Depends(verify_admin)):
     """Generate tournament bracket from seeded teams."""
     if not state.seeded:
         raise HTTPException(status_code=400, detail="Teams must be seeded first")
@@ -49,7 +89,7 @@ async def gen_bracket():
 # ── Sub-Round Management ─────────────────────────────────────────────
 
 @router.post("/bracket-round/{round_num}/sub-round/{sub_round}/prompt")
-async def set_sub_round_prompt(round_num: int, sub_round: int, config: SubRoundConfig):
+async def set_sub_round_prompt(round_num: int, sub_round: int, config: SubRoundConfig, _=Depends(verify_admin)):
     """Set a question for a sub-round — applies to ALL matches in this bracket round."""
     if round_num not in state.bracket_rounds:
         raise HTTPException(status_code=400, detail=f"Bracket round {round_num} doesn't exist")
@@ -78,7 +118,7 @@ async def set_sub_round_prompt(round_num: int, sub_round: int, config: SubRoundC
 
 
 @router.post("/bracket-round/{round_num}/sub-round/{sub_round}/run")
-async def run_sub_round(round_num: int, sub_round: int):
+async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin)):
     """
     For ALL matches in bracket round: fetch responses from both teams' endpoints,
     then judge with Gemini. All matches run concurrently.
@@ -141,9 +181,11 @@ async def run_sub_round(round_num: int, sub_round: int):
                         response_text = str(data)
                     sub["response_text"] = response_text
                     sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                    log_llm_fetch(team["name"], team["endpoint_url"], prompt, response_text, None)
             except Exception as e:
                 sub["fetch_error"] = str(e)[:200]
                 sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                log_llm_fetch(team["name"], team["endpoint_url"], prompt, None, str(e)[:200])
 
         await asyncio.gather(fetch_one(team1), fetch_one(team2))
 
@@ -168,6 +210,7 @@ async def run_sub_round(round_num: int, sub_round: int):
             result = await judge_submission(prompt, sub["response_text"], sub["team_name"], category)
             sub["score"] = result["score"] if result["score"] is not None else 0
             sub["reasoning"] = result["reasoning"]
+            log_judge_result(sub["team_name"], category, sub["score"], sub["reasoning"])
 
             # Update team's cumulative total score
             team_obj = state.teams.get(sub["team_id"])
@@ -273,7 +316,7 @@ async def _complete_bracket_round(round_num: int):
 # ── Manual completion trigger ────────────────────────────────────────
 
 @router.post("/bracket-round/{round_num}/complete")
-async def complete_bracket_round(round_num: int):
+async def complete_bracket_round(round_num: int, _=Depends(verify_admin)):
     """Manually trigger bracket round completion (if auto didn't fire)."""
     if round_num not in state.bracket_rounds:
         raise HTTPException(status_code=400, detail=f"Bracket round {round_num} doesn't exist")
@@ -288,7 +331,7 @@ async def complete_bracket_round(round_num: int):
 # ── Timer ────────────────────────────────────────────────────────────
 
 @router.post("/timer/start")
-async def start_timer(data: dict = None):
+async def start_timer(data: dict = None, _=Depends(verify_admin)):
     global _timer_task
     seconds = data.get("timer_seconds", 120) if data else 120
     cr = state.current_bracket_round
@@ -320,7 +363,7 @@ async def start_timer(data: dict = None):
 
 
 @router.post("/timer/stop")
-async def stop_timer():
+async def stop_timer(_=Depends(verify_admin)):
     global _timer_task
     if _timer_task and not _timer_task.done():
         _timer_task.cancel()
@@ -335,7 +378,7 @@ async def stop_timer():
 # ── Score Override ───────────────────────────────────────────────────
 
 @router.post("/score/override")
-async def override_score(override: ScoreOverride):
+async def override_score(override: ScoreOverride, _=Depends(verify_admin)):
     sub = state.submissions.get(override.submission_id)
     if not sub:
         raise HTTPException(status_code=404, detail="Submission not found")
@@ -363,7 +406,7 @@ async def override_score(override: ScoreOverride):
 # ── Test Endpoint ────────────────────────────────────────────────────
 
 @router.post("/test-endpoint")
-async def test_endpoint(data: dict):
+async def test_endpoint(data: dict, _=Depends(verify_admin)):
     url = data.get("url", "")
     if not url:
         raise HTTPException(status_code=400, detail="URL required")
@@ -383,7 +426,7 @@ async def test_endpoint(data: dict):
 # ── Reset ────────────────────────────────────────────────────────────
 
 @router.post("/reset")
-async def reset():
+async def reset(_=Depends(verify_admin)):
     state.__init__()
     await manager.broadcast("reset", {})
     return {"message": "State reset"}
