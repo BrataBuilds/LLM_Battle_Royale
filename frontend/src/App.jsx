@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import ParticipantView from './pages/ParticipantView';
 import Registration from './pages/Registration';
 import Submission from './pages/Submission';
+import Battle from './pages/Battle';
 import AdminDashboard from './pages/AdminDashboard';
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/" element={<ParticipantView />} />
           <Route path="/register" element={<Registration />} />
           <Route path="/submit" element={<Submission />} />
+          <Route path="/battle" element={<Battle />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
       </WebSocketProvider>

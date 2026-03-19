@@ -155,13 +155,47 @@ export default function AdminDashboard() {
             });
             if (res.status === 401) { handleLogout(); return; }
             const data = await res.json();
-            if (!res.ok) alert(data.detail || 'Error');
+            if (!res.ok) throw new Error(data.detail || 'Error');
             await fetchState();
             return data;
         } catch (e) {
             alert(e.message);
+            throw e;
         } finally {
             setLoading((prev) => ({ ...prev, [url]: false }));
+        }
+    };
+
+    const handleAutoRunMatch = async () => {
+        if (!window.confirm(`Auto-run ALL 3 sub-rounds for Bracket Round ${br}?`)) return;
+        setBattleStatus('running');
+        try {
+            for (let sr = 1; sr <= 3; sr++) {
+                setSelectedSubRound(sr);
+                const q = questions?.[br]?.[sr] || `Prompt for R${br} SR${sr}`;
+                setStatusMessage(`Auto-Running SR${sr}...`);
+                
+                // 1. Set Question
+                await apiCall(`/api/admin/bracket-round/${br}/sub-round/${sr}/prompt`, 'POST', { prompt: q, timer_seconds: timerSeconds });
+                
+                // Let the UI breathe and let the participants see the question
+                setStatusMessage(`Waiting for teams to see the prompt...`);
+                await new Promise(r => setTimeout(r, 4000));
+
+                // 2. Run Match (this awaits until Gemini judging is complete)
+                setStatusMessage(`Auto-Running SR${sr}...`);
+                await apiCall(`/api/admin/bracket-round/${br}/sub-round/${sr}/run`, 'POST');
+                
+                // Wait for UI to settle and give users time to read
+                if (sr < 3) await new Promise(r => setTimeout(r, 10000));
+            }
+            
+            setStatusMessage("Advancing Winners...");
+            await apiCall(`/api/admin/bracket-round/${br}/complete`, 'POST');
+        } catch (e) {
+            console.error("Auto-run failed", e);
+        } finally {
+            setBattleStatus(null);
         }
     };
 
@@ -266,6 +300,18 @@ export default function AdminDashboard() {
                             disabled={loading['/api/admin/generate-bracket'] || !appState.seeded}
                         >
                             {loading['/api/admin/generate-bracket'] ? '...' : '📊 Generate Bracket'}
+                        </button>
+                        <button
+                            className="btn btn-secondary"
+                            style={{ marginLeft: 'auto', border: '1px solid var(--accent-purple)' }}
+                            onClick={() => {
+                                if (window.confirm('Reset everything and start dummy match?')) {
+                                    apiCall('/api/admin/setup-dummy');
+                                }
+                            }}
+                            disabled={loading['/api/admin/setup-dummy']}
+                        >
+                            {loading['/api/admin/setup-dummy'] ? '...' : '🤖 Quick Dummy Setup'}
                         </button>
                     </div>
                     <div className="setup-status">
@@ -374,12 +420,41 @@ export default function AdminDashboard() {
                             className="btn btn-primary"
                             onClick={() => {
                                 setBattleStatus('running');
-                                apiCall(runUrl);
+                                apiCall(runUrl).finally(() => setBattleStatus(null));
                             }}
                             disabled={loading[runUrl] || battleStatus === 'running' || subRoundsCompleted.includes(sr)}
                         >
                             {battleStatus === 'running' ? '⚔️ Running...' : `⚔️ Run SR${sr}: ${SUB_ROUND_CATEGORIES[sr]}`}
                         </button>
+                    </div>
+                    
+                    <div style={{ marginTop: '1.5rem', background: 'rgba(255, 68, 68, 0.05)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--accent-red)' }}>
+                        <h4 style={{ color: 'var(--accent-red)', marginBottom: '0.5rem', marginTop: 0 }}>🚨 Advanced Controls</h4>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                            Auto-Pilot runs all 3 sub-rounds sequentially. Restart deletes all current round history to try again.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <button
+                                className="btn"
+                                style={{ background: 'var(--accent-red)', color: 'white', width: '100%', fontWeight: 'bold' }}
+                                onClick={handleAutoRunMatch}
+                                disabled={battleStatus === 'running' || subRoundsCompleted.length > 0}
+                            >
+                                ▶️ AUTO-RUN ENTIRE BRACKET ROUND {br}
+                            </button>
+                            <button
+                                className="btn btn-secondary"
+                                style={{ border: '1px dashed var(--accent-red)', color: 'var(--text-primary)', width: '100%', opacity: battleStatus === 'running' ? 0.5 : 1 }}
+                                onClick={() => {
+                                    if(window.confirm(`Are you SURE you want to RESET Bracket Round ${br}? All submissions and scores for this round will be instantly deleted.`)) {
+                                        apiCall(`/api/admin/bracket-round/${br}/reset`, 'POST');
+                                    }
+                                }}
+                                disabled={battleStatus === 'running'}
+                            >
+                                🔄 RESTART BRACKET ROUND {br}
+                            </button>
+                        </div>
                     </div>
                     <p className="flow-hint">
                         Set question → Run (fetches + judges ALL matches concurrently) → After 3 sub-rounds, winners auto-advance

@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from google import genai
 
 
@@ -68,10 +69,29 @@ You MUST respond with ONLY valid JSON in this exact format, no other text:
 
     try:
         client = get_client()
-        response = client.models.generate_content(
-            model="gemini-3.0-flash",
-            contents=scoring_prompt,
-        )
+        
+        async def _fetch():
+            for attempt in range(3):
+                try:
+                    return await client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite-preview",
+                        contents=scoring_prompt,
+                    )
+                except Exception as e:
+                    if "429" in str(e) or "quota" in str(e).lower() or "503" in str(e):
+                        if attempt < 2:
+                            print(f"[Gemini Judge] Rate limit hit. Retrying in {2 * (attempt + 1)}s...")
+                            await asyncio.sleep(2 * (attempt + 1))
+                            continue
+                    raise e
+
+        # Limit to 5 concurrent LLM calls across the whole app
+        global _judge_semaphore
+        if '_judge_semaphore' not in globals():
+            _judge_semaphore = asyncio.Semaphore(5)
+            
+        async with _judge_semaphore:
+            response = await _fetch()
 
         text = response.text.strip()
         # Clean potential markdown wrapping
@@ -152,10 +172,29 @@ You MUST respond with ONLY valid JSON in this exact format, no markdown, no prea
 
     try:
         client = get_client()
-        response = client.models.generate_content(
-            model="gemini-3.0-flash",
-            contents=scoring_prompt,
-        )
+        
+        async def _fetch():
+            for attempt in range(3):
+                try:
+                    return await client.aio.models.generate_content(
+                        model="gemini-3.1-flash-lite-preview",
+                        contents=scoring_prompt,
+                    )
+                except Exception as e:
+                    if "429" in str(e) or "quota" in str(e).lower() or "503" in str(e):
+                        if attempt < 2:
+                            print(f"[Gemini Judge] Rate limit hit. Retrying in {2 * (attempt + 1)}s...")
+                            await asyncio.sleep(2 * (attempt + 1))
+                            continue
+                    raise e
+
+        # Limit to 5 concurrent LLM calls across the whole app
+        global _judge_semaphore
+        if '_judge_semaphore' not in globals():
+            _judge_semaphore = asyncio.Semaphore(5)
+            
+        async with _judge_semaphore:
+            response = await _fetch()
 
         text = _clean_json_text(response.text)
         result = json.loads(text)

@@ -270,6 +270,7 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
             "team2_score": t2_sub["score"] if t2_sub else 0,
             "team1_total": match["team1_total"],
             "team2_total": match["team2_total"],
+            "reasoning": judge_result["reasoning"],
         })
 
     # Run ALL matches concurrently
@@ -469,6 +470,80 @@ async def test_endpoint(data: dict, _=Depends(verify_admin)):
             return {"status": "ok", "response": response.json(), "status_code": response.status_code}
     except Exception as e:
         return {"status": "error", "error": str(e)[:300]}
+
+
+# ── Dummy Setup ──────────────────────────────────────────────────────
+
+@router.post("/setup-dummy")
+async def setup_dummy(_=Depends(verify_admin)):
+    """Clear state, register 2 dummy teams, seed, and generate bracket to prepare for testing."""
+    state.__init__()
+    team1 = state.add_team("Dummy Alpha 🚀", ["Alice", "Bob"], "DUMMY")
+    team2 = state.add_team("Dummy Beta 💥", ["Charlie", "Dana"], "DUMMY")
+    teams = seed_teams(mode="random")
+    matches = generate_bracket()
+
+    await manager.broadcast("reset", {})
+    await manager.broadcast("team_registered", team1)
+    await manager.broadcast("team_registered", team2)
+    await manager.broadcast("seeding_update", {"teams": teams, "seeded": True})
+    await manager.broadcast("bracket_update", {
+        "matches": matches,
+        "current_bracket_round": state.current_bracket_round,
+        "total_bracket_rounds": state.total_bracket_rounds,
+    })
+    return {"message": "Dummy battle setup complete", "teams": teams, "matches": matches}
+
+
+# ── Restart Bracket Round ─────────────────────────────────────────────
+
+@router.post("/bracket-round/{round_num}/reset")
+async def reset_bracket_round(round_num: int, _=Depends(verify_admin)):
+    """Wipe out all submissions, scores, and progress for the current bracket round so it can be re-run."""
+    if round_num not in state.bracket_rounds:
+        raise HTTPException(status_code=400, detail="Bracket round not found")
+
+    br = state.bracket_rounds[round_num]
+    br["sub_rounds_completed"] = []
+    br["sub_round_prompts"] = {}
+    br["completed"] = False
+    
+    matches = state.get_matches_for_round(round_num)
+    match_ids = {m["id"] for m in matches}
+    
+    # Delete all submissions tied to this round's matches
+    keys_to_delete = [
+        k for k, sub in state.submissions.items()
+        if sub["match_id"] in match_ids
+    ]
+    for k in keys_to_delete:
+        del state.submissions[k]
+        
+    # Reset match totals
+    for match in matches:
+        match["team1_total"] = 0
+        match["team2_total"] = 0
+        match["winner_id"] = None
+        match["sub_round_prompts"] = {}
+        
+    # Recalculate global team scores
+    for match in matches:
+        for tid in [match["team1_id"], match["team2_id"]]:
+            if not tid: continue
+            team_obj = state.teams.get(tid)
+            if team_obj:
+                team_obj["total_score"] = sum(
+                    s["score"] for s in state.submissions.values()
+                    if s["team_id"] == tid and s["score"] is not None
+                )
+    
+    await manager.broadcast("bracket_update", {
+        "matches": list(state.matches.values()),
+        "current_bracket_round": state.current_bracket_round,
+        "total_bracket_rounds": state.total_bracket_rounds,
+    })
+    
+    return {"message": f"Bracket round {round_num} successfully reset."}
 
 
 # ── Reset ────────────────────────────────────────────────────────────

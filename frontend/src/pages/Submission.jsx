@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import Timer from '../components/Timer';
 import './Submission.css';
@@ -11,7 +12,9 @@ const SUB_ROUND_CATEGORIES = {
 
 export default function Submission() {
     const { subscribe } = useWebSocket();
-    const [team, setTeam] = useState(null);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [team, setTeam] = useState(location.state?.team || null);
     const [teamNameInput, setTeamNameInput] = useState('');
     const [loginError, setLoginError] = useState('');
     const [appData, setAppData] = useState(null);
@@ -24,7 +27,7 @@ export default function Submission() {
         try {
             const teamRes = await fetch(`/api/teams/${team.id}`);
             if (teamRes.ok) setTeam(await teamRes.json());
-            const stateRes = await fetch('/api/admin/state');
+            const stateRes = await fetch('/api/state');
             setAppData(await stateRes.json());
         } catch (e) { console.error(e); }
     };
@@ -107,6 +110,14 @@ export default function Submission() {
 
     // Find current active match (not completed)
     const activeMatch = matches.find(m => !m.completed);
+    
+    // Auto-join battle when it starts, unless explicitly backed out
+    useEffect(() => {
+        if (activeMatch && !location.state?.fromBattle) {
+            navigate('/battle', { state: { team } });
+        }
+    }, [activeMatch, team, navigate, location.state]);
+
     // Get live updates for the active match
     const liveUpdates = activeMatch
         ? [1, 2, 3].map(sr => matchUpdates[`${activeMatch.id}_${sr}`]).filter(Boolean)
@@ -163,67 +174,20 @@ export default function Submission() {
             {/* Live Battle View */}
             {activeMatch && liveUpdates.length > 0 && (
                 <div style={{ marginTop: '2rem' }}>
-                    <h2 className="section-title">⚔️ Live Battle</h2>
-                    <div className="card animate-in" style={{ padding: '1.5rem', border: '1px solid var(--accent-cyan)', background: 'rgba(0,255,255,0.03)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                            <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>
-                                vs {activeMatch.team1_id === team.id ? activeMatch.team2_name : activeMatch.team1_name}
-                            </span>
-                            <span className="badge badge-cyan">R{activeMatch.round_number} M{activeMatch.match_index + 1}</span>
-                        </div>
-
-                        {liveUpdates.map((update, idx) => {
-                            const p = personalize(update);
-                            return (
-                                <div key={idx} style={{ marginBottom: '1.25rem', paddingBottom: '1.25rem', borderBottom: idx < liveUpdates.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                                        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--accent-purple)' }}>
-                                            SR{update.sub_round}: {update.sub_round_label}
-                                        </span>
-                                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem' }}>
-                                            <span style={{ color: 'var(--accent-green)' }}>{p.yourScore}</span>
-                                            {' - '}
-                                            <span style={{ color: 'var(--accent-red)' }}>{p.opponentScore}</span>
-                                        </span>
-                                    </div>
-
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontStyle: 'italic' }}>
-                                        📝 {update.prompt}
-                                    </div>
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                                        <div style={{ background: 'rgba(0,255,136,0.05)', border: '1px solid rgba(0,255,136,0.2)', borderRadius: '6px', padding: '0.6rem' }}>
-                                            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-green)', marginBottom: '0.3rem', textTransform: 'uppercase' }}>Your Response</div>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxHeight: '120px', overflow: 'auto', fontFamily: 'var(--font-mono)', lineHeight: 1.4 }}>
-                                                {p.yourResponse || '(no response)'}
-                                            </div>
-                                        </div>
-                                        <div style={{ background: 'rgba(255,68,68,0.05)', border: '1px solid rgba(255,68,68,0.2)', borderRadius: '6px', padding: '0.6rem' }}>
-                                            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-red)', marginBottom: '0.3rem', textTransform: 'uppercase' }}>Opponent Response</div>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxHeight: '120px', overflow: 'auto', fontFamily: 'var(--font-mono)', lineHeight: 1.4 }}>
-                                                {p.opponentResponse || '(no response)'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-
-                        {/* Running total */}
-                        {liveUpdates.length > 0 && (() => {
-                            const lastUpdate = liveUpdates[liveUpdates.length - 1];
-                            const p = personalize(lastUpdate);
-                            return (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.75rem', borderTop: '2px solid var(--border-subtle)' }}>
-                                    <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>Running Total</span>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.2rem' }}>
-                                        <span style={{ color: 'var(--accent-green)' }}>{p.yourTotal}</span>
-                                        {' - '}
-                                        <span style={{ color: 'var(--accent-red)' }}>{p.opponentTotal}</span>
-                                    </span>
-                                </div>
-                            );
-                        })()}
+                    <div className="card text-center animate-in" style={{ padding: '3rem', border: '2px solid var(--accent-cyan)', background: 'linear-gradient(rgba(0,255,255,0.05), rgba(0,255,136,0.05))', boxShadow: '0 0 30px rgba(0,255,255,0.1)' }}>
+                        <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem', color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '2px' }}>
+                            ⚔️ MATCH IN PROGRESS
+                        </h2>
+                        <p style={{ marginBottom: '2rem', fontSize: '1.2rem', color: 'var(--text-secondary)' }}>
+                            You are currently battling <strong style={{ color: 'var(--accent-red)' }}>{activeMatch.team1_id === team.id ? activeMatch.team2_name : activeMatch.team1_name}</strong>.
+                        </p>
+                        <button 
+                            className="btn btn-primary" 
+                            onClick={() => navigate('/battle', { state: { team } })} 
+                            style={{ fontSize: '1.5rem', padding: '1.2rem 4rem', fontWeight: 800, letterSpacing: '2px', boxShadow: '0 0 20px rgba(0, 255, 136, 0.4)' }}
+                        >
+                            ENTER BATTLE ARENA
+                        </button>
                     </div>
                 </div>
             )}
@@ -259,18 +223,32 @@ export default function Submission() {
                                     {[1, 2, 3].map((sr) => {
                                         const sub = matchSubs.find(s => s.sub_round === sr);
                                         const oppSub = opponentSubs.find(s => s.sub_round === sr);
+                                        if (!sub && !oppSub) return null;
+                                        
                                         return (
-                                            <div key={sr} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.3rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{SUB_ROUND_CATEGORIES[sr]}</span>
-                                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                                                    <span style={{ color: sub?.score != null ? 'var(--accent-green)' : 'var(--text-muted)' }}>
-                                                        {sub?.score != null ? sub.score : '·'}
+                                            <div key={sr} style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.85rem', color: 'var(--accent-purple)', fontWeight: 800 }}>SR{sr}: {SUB_ROUND_CATEGORIES[sr]}</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                                                        <span style={{ color: sub?.score != null ? 'var(--accent-green)' : 'var(--text-muted)' }}>
+                                                            {sub?.score != null ? sub.score : '·'}
+                                                        </span>
+                                                        <span style={{ margin: '0 0.5rem', color: 'var(--text-muted)' }}>-</span>
+                                                        <span style={{ color: oppSub?.score != null ? 'var(--accent-red)' : 'var(--text-muted)' }}>
+                                                            {oppSub?.score != null ? oppSub.score : '·'}
+                                                        </span>
                                                     </span>
-                                                    {' - '}
-                                                    <span style={{ color: oppSub?.score != null ? 'var(--accent-red)' : 'var(--text-muted)' }}>
-                                                        {oppSub?.score != null ? oppSub.score : '·'}
-                                                    </span>
-                                                </span>
+                                                </div>
+                                                
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', wordBreak: 'break-word', lineHeight: 1.4 }}>
+                                                    📝 {sub?.prompt || oppSub?.prompt || 'No prompt recorded.'}
+                                                </div>
+                                                
+                                                {(sub?.reasoning || oppSub?.reasoning) && (
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', padding: '0.5rem', background: 'rgba(0, 255, 255, 0.05)', borderRadius: '4px', borderLeft: '2px solid var(--accent-cyan)', lineHeight: 1.4 }}>
+                                                        ⚖️ {sub?.reasoning || oppSub?.reasoning}
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

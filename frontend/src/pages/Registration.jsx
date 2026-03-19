@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import './Registration.css';
 
 export default function Registration() {
     const { subscribe } = useWebSocket();
+    const navigate = useNavigate();
     const [teamName, setTeamName] = useState('');
     const [members, setMembers] = useState(['']);
     const [endpointUrl, setEndpointUrl] = useState('');
     const [teams, setTeams] = useState([]);
-    const [success, setSuccess] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [testResult, setTestResult] = useState(null);
@@ -78,10 +79,9 @@ export default function Registration() {
             }
 
             const team = await res.json();
-            setSuccess(team);
-            setTeamName('');
-            setMembers(['']);
-            setEndpointUrl('');
+            // Automatically log them in and navigate to the Team Status page
+            navigate('/submit', { state: { team } });
+
         } catch (e) {
             setError(e.message);
         } finally {
@@ -94,34 +94,19 @@ export default function Registration() {
             <h1 className="page-title">Team Registration</h1>
             <p className="page-subtitle">Register your team and LLM endpoint for the Battle Royale</p>
 
-            {success ? (
-                <div className="card reg-success animate-in">
-                    <div className="reg-success-icon">🎉</div>
-                    <h3>Team Registered!</h3>
-                    <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                        <strong>{success.name}</strong> is in the fight.
-                    </p>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem', fontFamily: 'var(--font-mono)' }}>
-                        Endpoint: {success.endpoint_url}
-                    </p>
-                    <button className="btn btn-primary" onClick={() => setSuccess(null)}>
-                        Register Another Team
-                    </button>
-                </div>
-            ) : (
-                <div className="card reg-form animate-in">
-                    <form onSubmit={handleSubmit}>
-                        <div className="form-group">
-                            <label>Team Name</label>
-                            <input
-                                className="input"
-                                type="text"
-                                placeholder="Enter team name"
-                                value={teamName}
-                                onChange={(e) => setTeamName(e.target.value)}
-                                required
-                            />
-                        </div>
+            <div className="card reg-form animate-in">
+                <form onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label>Team Name</label>
+                        <input
+                            className="input"
+                            type="text"
+                            placeholder="Enter team name"
+                            value={teamName}
+                            onChange={(e) => setTeamName(e.target.value)}
+                            required
+                        />
+                    </div>
 
                         <div className="form-group">
                             <label>LLM Endpoint URL</label>
@@ -135,6 +120,18 @@ export default function Registration() {
                                     required
                                     style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', flex: 1 }}
                                 />
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => {
+                                        setEndpointUrl('DUMMY');
+                                        setTestResult(null);
+                                    }}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                    title="Use dummy endpoint for testing without a real LLM"
+                                >
+                                    🤖 Use Dummy
+                                </button>
                                 <button
                                     type="button"
                                     className="btn btn-secondary btn-sm"
@@ -157,7 +154,7 @@ export default function Registration() {
                                     }}
                                     style={{ whiteSpace: 'nowrap' }}
                                 >
-                                    {testLoading ? '⏳ Testing...' : '🧪 Test Endpoint'}
+                                    {testLoading ? '⏳ ' : '🧪 Test'}
                                 </button>
                             </div>
                             {testResult && (
@@ -216,19 +213,18 @@ export default function Registration() {
                         </button>
                     </form>
                 </div>
-            )}
 
             <div style={{ marginTop: '3rem' }}>
                 <h2 className="section-title">
                     Registered Teams <span className="team-count-badge">({teams.length}/64)</span>
                 </h2>
                 <div className="teams-grid">
-                    {teams.map((team) => (
-                        <div className="card team-mini-card" key={team.id}>
-                            <h4>{team.name}</h4>
-                            <div className="members">{team.members.join(', ')}</div>
+                    {teams.map((teamData) => (
+                        <div className="card team-mini-card" key={teamData.id}>
+                            <h4>{teamData.name}</h4>
+                            <div className="members">{teamData.members.join(', ')}</div>
                             <div style={{ marginTop: '0.4rem', fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {team.endpoint_url}
+                                {teamData.endpoint_url}
                             </div>
                         </div>
                     ))}

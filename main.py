@@ -41,6 +41,11 @@ async def health():
         "sub_round": state.current_sub_round,
     }
 
+@app.get("/api/state")
+async def get_public_state():
+    """Publicly accessible full state dump."""
+    return state.to_dict()
+
 
 @app.get("/api/standings")
 async def get_standings():
