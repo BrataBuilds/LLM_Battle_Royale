@@ -11,6 +11,8 @@ export default function Registration() {
     const [success, setSuccess] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [testResult, setTestResult] = useState(null);
+    const [testLoading, setTestLoading] = useState(false);
 
     const fetchTeams = async () => {
         try {
@@ -123,15 +125,58 @@ export default function Registration() {
 
                         <div className="form-group">
                             <label>LLM Endpoint URL</label>
-                            <input
-                                className="input"
-                                type="url"
-                                placeholder="https://your-llm-endpoint.com/generate"
-                                value={endpointUrl}
-                                onChange={(e) => setEndpointUrl(e.target.value)}
-                                required
-                                style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
-                            />
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <input
+                                    className="input"
+                                    type="url"
+                                    placeholder="https://your-llm-endpoint.com/generate"
+                                    value={endpointUrl}
+                                    onChange={(e) => { setEndpointUrl(e.target.value); setTestResult(null); }}
+                                    required
+                                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', flex: 1 }}
+                                />
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    disabled={testLoading || !endpointUrl.trim()}
+                                    onClick={async () => {
+                                        setTestLoading(true);
+                                        setTestResult(null);
+                                        try {
+                                            const res = await fetch('/api/teams/test-endpoint', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ url: endpointUrl.trim() }),
+                                            });
+                                            setTestResult(await res.json());
+                                        } catch (e) {
+                                            setTestResult({ success: false, error: e.message });
+                                        } finally {
+                                            setTestLoading(false);
+                                        }
+                                    }}
+                                    style={{ whiteSpace: 'nowrap' }}
+                                >
+                                    {testLoading ? '⏳ Testing...' : '🧪 Test Endpoint'}
+                                </button>
+                            </div>
+                            {testResult && (
+                                <div style={{
+                                    marginTop: '0.5rem',
+                                    padding: '0.6rem 0.8rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.85rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    background: testResult.success ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,68,0.1)',
+                                    border: `1px solid ${testResult.success ? 'var(--accent-green)' : 'var(--accent-red)'}`,
+                                    color: testResult.success ? 'var(--accent-green)' : 'var(--accent-red)',
+                                }}>
+                                    {testResult.success
+                                        ? `✅ Responding! Got: "${(testResult.response || '').slice(0, 100)}" in ${testResult.latency_ms}ms`
+                                        : `❌ Failed: ${testResult.error}`
+                                    }
+                                </div>
+                            )}
                             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                                 Your deployed LLM endpoint. Must accept POST with {`{"prompt": "..."}`} and return {`{"response": "..."}`}
                             </p>

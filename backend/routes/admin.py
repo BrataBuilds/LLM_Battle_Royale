@@ -5,7 +5,7 @@ import time
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Header
 from backend.models import state, ScoreOverride, SubRoundConfig, SUB_ROUND_CATEGORIES
-from backend.gemini_judge import judge_submission
+from backend.gemini_judge import judge_submission, judge_match_submission
 from backend.ws_manager import manager
 from backend.bracket import seed_teams, generate_bracket, advance_winners, determine_match_winner
 from backend.logger import log_llm_fetch, log_judge_result
@@ -164,6 +164,15 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
             sub = state.get_submission_for_team_match_sub_round(team["id"], match["id"], sub_round)
             if not sub:
                 return
+
+            if team["endpoint_url"] == "DUMMY":
+                # Special case for testing with a dummy endpoint
+                dummy_text = f"[DUMMY] This is a simulated response from {team['name']} for prompt: {prompt[:30]}..."
+                sub["response_text"] = dummy_text
+                sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                log_llm_fetch(team["name"], "DUMMY", prompt, dummy_text, None)
+                return
+
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
@@ -197,40 +206,41 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
             "team2_name": team2["name"],
         })
 
-        # Judge both responses with Gemini
-        async def judge_one(team: dict):
-            sub = state.get_submission_for_team_match_sub_round(team["id"], match["id"], sub_round)
-            if not sub:
-                return
-            if not sub["response_text"]:
-                sub["score"] = 0
-                sub["reasoning"] = "No response received from endpoint"
-                return
+        # Judge both responses with Gemini (single comparative call)
+        t1_sub = state.get_submission_for_team_match_sub_round(team1["id"], match["id"], sub_round)
+        t2_sub = state.get_submission_for_team_match_sub_round(team2["id"], match["id"], sub_round)
 
-            result = await judge_submission(prompt, sub["response_text"], sub["team_name"], category)
-            sub["score"] = result["score"] if result["score"] is not None else 0
-            sub["reasoning"] = result["reasoning"]
-            log_judge_result(sub["team_name"], category, sub["score"], sub["reasoning"])
+        t1_response = t1_sub["response_text"] if t1_sub else None
+        t2_response = t2_sub["response_text"] if t2_sub else None
 
-            # Update team's cumulative total score
-            team_obj = state.teams.get(sub["team_id"])
+        judge_result = await judge_match_submission(
+            prompt, t1_response or "", t2_response or "",
+            team1["name"], team2["name"], category,
+        )
+
+        # Store scores on submissions
+        if t1_sub:
+            t1_sub["score"] = judge_result["team_a_score"] if t1_response else 0
+            t1_sub["reasoning"] = judge_result["reasoning"]
+            log_judge_result(team1["name"], category, t1_sub["score"], t1_sub["reasoning"])
+        if t2_sub:
+            t2_sub["score"] = judge_result["team_b_score"] if t2_response else 0
+            t2_sub["reasoning"] = judge_result["reasoning"]
+            log_judge_result(team2["name"], category, t2_sub["score"], t2_sub["reasoning"])
+
+        # Update cumulative team scores
+        for tid in [team1["id"], team2["id"]]:
+            team_obj = state.teams.get(tid)
             if team_obj:
-                total = sum(
+                team_obj["total_score"] = sum(
                     s["score"] for s in state.submissions.values()
-                    if s["team_id"] == sub["team_id"] and s["score"] is not None
+                    if s["team_id"] == tid and s["score"] is not None
                 )
-                team_obj["total_score"] = total
-
-        await asyncio.gather(judge_one(team1), judge_one(team2))
 
         # Update match sub-round totals
         scores = state.get_match_total_scores(match["id"])
         match["team1_total"] = scores["team1_total"]
         match["team2_total"] = scores["team2_total"]
-
-        # Get individual sub-round scores for broadcast
-        t1_sub = state.get_submission_for_team_match_sub_round(team1["id"], match["id"], sub_round)
-        t2_sub = state.get_submission_for_team_match_sub_round(team2["id"], match["id"], sub_round)
 
         await manager.broadcast("match_scored", {
             "match_id": match["id"],
@@ -240,6 +250,24 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
             "team2_name": team2["name"],
             "team1_sub_score": t1_sub["score"] if t1_sub else 0,
             "team2_sub_score": t2_sub["score"] if t2_sub else 0,
+            "team1_total": match["team1_total"],
+            "team2_total": match["team2_total"],
+        })
+
+        # Broadcast match_update for live team view (Change 2)
+        await manager.broadcast("match_update", {
+            "match_id": match["id"],
+            "sub_round": sub_round,
+            "sub_round_label": SUB_ROUND_CATEGORIES[sub_round],
+            "prompt": prompt,
+            "team1_id": team1["id"],
+            "team2_id": team2["id"],
+            "team1_name": team1["name"],
+            "team2_name": team2["name"],
+            "team1_response": t1_response or "",
+            "team2_response": t2_response or "",
+            "team1_score": t1_sub["score"] if t1_sub else 0,
+            "team2_score": t2_sub["score"] if t2_sub else 0,
             "team1_total": match["team1_total"],
             "team2_total": match["team2_total"],
         })
@@ -274,19 +302,39 @@ async def _complete_bracket_round(round_num: int):
     """After all 3 sub-rounds: determine winners, eliminate losers, advance to next bracket round."""
     matches = state.get_matches_for_round(round_num)
 
-    # Determine winners for each match
+    # Determine winners for each match and broadcast match_result per match
     results = []
     for match in matches:
         if not match.get("winner_id"):
             determine_match_winner(match["id"])
-        results.append({
+
+        # Build per-sub-round breakdown
+        breakdown = []
+        for sr in [1, 2, 3]:
+            t1_sub = state.get_submission_for_team_match_sub_round(
+                match["team1_id"], match["id"], sr) if match["team1_id"] else None
+            t2_sub = state.get_submission_for_team_match_sub_round(
+                match["team2_id"], match["id"], sr) if match["team2_id"] else None
+            breakdown.append({
+                "sub_round": sr,
+                "category": SUB_ROUND_CATEGORIES[sr],
+                "team_a_score": t1_sub["score"] if t1_sub and t1_sub["score"] is not None else 0,
+                "team_b_score": t2_sub["score"] if t2_sub and t2_sub["score"] is not None else 0,
+            })
+
+        result_data = {
             "match_id": match["id"],
-            "team1_name": match["team1_name"],
-            "team2_name": match["team2_name"],
-            "team1_total": match["team1_total"],
-            "team2_total": match["team2_total"],
+            "team_a_name": match["team1_name"],
+            "team_b_name": match["team2_name"],
+            "team_a_total": match["team1_total"],
+            "team_b_total": match["team2_total"],
             "winner_name": match["winner_name"],
-        })
+            "sub_round_breakdown": breakdown,
+        }
+        results.append(result_data)
+
+        # Broadcast per-match result
+        await manager.broadcast("match_result", result_data)
 
     await manager.broadcast("bracket_round_complete", {
         "bracket_round": round_num,

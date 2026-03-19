@@ -69,7 +69,7 @@ You MUST respond with ONLY valid JSON in this exact format, no other text:
     try:
         client = get_client()
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.0-flash",
             contents=scoring_prompt,
         )
 
@@ -95,3 +95,84 @@ You MUST respond with ONLY valid JSON in this exact format, no other text:
     except Exception as e:
         print(f"[Gemini Judge] Error: {e}")
         return {"score": None, "reasoning": f"Judging error: {str(e)[:100]}"}
+
+
+def _clean_json_text(text: str) -> str:
+    """Strip markdown code fences from Gemini response."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    if text.startswith("json"):
+        text = text[4:].strip()
+    return text
+
+
+async def judge_match_submission(
+    challenge_prompt: str,
+    response_a: str,
+    response_b: str,
+    team_a_name: str,
+    team_b_name: str,
+    category: str,
+) -> dict:
+    """
+    Judge BOTH teams' responses in a single Gemini call.
+    Returns {"team_a_score": 0-100, "team_b_score": 0-100, "reasoning": "..."}
+    """
+    scoring_prompt = f"""You are an expert judge for the InferenceX LLM Battle Royale competition.
+
+Round Category: {category}
+
+The following challenge prompt was sent to two competing teams' deployed LLMs:
+---
+{challenge_prompt}
+---
+
+Team A ("{team_a_name}") responded with:
+---
+{response_a or "[NO RESPONSE RECEIVED]"}
+---
+
+Team B ("{team_b_name}") responded with:
+---
+{response_b or "[NO RESPONSE RECEIVED]"}
+---
+
+Score BOTH responses on a scale of 0 to 100 based on these criteria:
+- Accuracy (40 points): How factually correct and logically sound is the response?
+- Completeness (30 points): Does the response fully address all parts of the question?
+- Clarity (20 points): Is the response well-structured, clear, and easy to understand?
+- Efficiency/Creativity (10 points): Is the approach elegant, creative, or efficient?
+
+You MUST respond with ONLY valid JSON in this exact format, no markdown, no preamble, no other text:
+{{"team_a_score": <integer 0-100>, "team_b_score": <integer 0-100>, "reasoning": "<one concise sentence comparing both responses>"}}"""
+
+    try:
+        client = get_client()
+        response = client.models.generate_content(
+            model="gemini-3.0-flash",
+            contents=scoring_prompt,
+        )
+
+        text = _clean_json_text(response.text)
+        result = json.loads(text)
+
+        team_a_score = max(0, min(100, int(result.get("team_a_score", 0))))
+        team_b_score = max(0, min(100, int(result.get("team_b_score", 0))))
+        reasoning = str(result.get("reasoning", "No reasoning provided"))
+
+        return {
+            "team_a_score": team_a_score,
+            "team_b_score": team_b_score,
+            "reasoning": reasoning,
+        }
+
+    except json.JSONDecodeError as e:
+        print(f"[Gemini Judge] JSON parse error: {e}. Raw: {text[:200]}")
+        return {"team_a_score": 0, "team_b_score": 0, "reasoning": "Judging error: could not parse response"}
+    except Exception as e:
+        print(f"[Gemini Judge] Error: {e}")
+        return {"team_a_score": 0, "team_b_score": 0, "reasoning": f"Judging error: {str(e)[:100]}"}
