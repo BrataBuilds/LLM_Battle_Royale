@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import time
-from backend.models import state, TeamCreate, TeamOut, TeamLogin
+from backend.models import state, TeamCreate, TeamOut, TeamLogin, TeamEndpointUpdate
 from backend.ws_manager import manager
+from backend.database import TeamRepository
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
@@ -24,7 +25,9 @@ async def register_team(team: TeamCreate):
     if not url.startswith(("http://", "https://")) and url != "DUMMY":
         raise HTTPException(status_code=400, detail="Endpoint URL must start with http:// or https:// (or be 'DUMMY' for testing)")
 
-    new_team = state.add_team(team.name, team.password, team.members, url)
+    # Convert members to list of dicts for storage
+    members_data = [{"name": m.name, "roll": m.roll} for m in team.members]
+    new_team = state.add_team(team.name, team.password, members_data, url)
     await manager.broadcast("team_registered", new_team)
     return new_team
 
@@ -49,6 +52,22 @@ async def login_team(login_data: TeamLogin):
     if not team:
         raise HTTPException(status_code=401, detail="Invalid team name or password")
     return team
+
+
+@router.put("/{team_id}/endpoint", response_model=TeamOut)
+async def update_team_endpoint(team_id: str, data: TeamEndpointUpdate):
+    """Update a team's endpoint URL."""
+    team = state.get_team_by_id(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    url = data.endpoint_url.strip()
+    if not url.startswith(("http://", "https://")) and url != "DUMMY":
+        raise HTTPException(status_code=400, detail="Endpoint URL must start with http:// or https:// (or be 'DUMMY' for testing)")
+
+    updated_team = TeamRepository.update_team_endpoint(team_id, url)
+    await manager.broadcast("team_updated", updated_team)
+    return updated_team
 
 
 @router.post("/test-endpoint")

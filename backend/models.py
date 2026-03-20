@@ -1,16 +1,29 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 import uuid
+import re
 from backend.database import TeamRepository
 
 
 # ── Pydantic request/response models ────────────────────────────────
 
+class TeamMember(BaseModel):
+    name: str
+    roll: str
+
+    @field_validator('roll')
+    @classmethod
+    def validate_roll(cls, v):
+        if v and not re.match(r'^[a-zA-Z0-9]+$', v):
+            raise ValueError('Roll number must be alphanumeric')
+        return v
+
+
 class TeamCreate(BaseModel):
     name: str
     password: str = Field(..., min_length=4)  # Team password for authentication
-    members: list[str] = Field(..., min_length=1, max_length=4)
+    members: list[TeamMember] = Field(..., min_length=1, max_length=4)
     endpoint_url: str  # Team's /generate endpoint URL
 
 
@@ -19,10 +32,14 @@ class TeamLogin(BaseModel):
     password: str
 
 
+class TeamEndpointUpdate(BaseModel):
+    endpoint_url: str
+
+
 class TeamOut(BaseModel):
     id: str
     name: str
-    members: list[str]
+    members: list[TeamMember]
     endpoint_url: str
     eliminated: bool = False
     total_score: float = 0

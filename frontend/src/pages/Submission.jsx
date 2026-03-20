@@ -40,6 +40,9 @@ export default function Submission() {
     const [endpointStatus, setEndpointStatus] = useState(null);
     const [testingEndpoint, setTestingEndpoint] = useState(false);
     const [matchUpdates, setMatchUpdates] = useState({});
+    const [editingEndpoint, setEditingEndpoint] = useState(false);
+    const [newEndpointUrl, setNewEndpointUrl] = useState('');
+    const [savingEndpoint, setSavingEndpoint] = useState(false);
 
     const fetchTeamData = async () => {
         if (!team?.id) return;
@@ -125,6 +128,36 @@ export default function Submission() {
         finally { setTestingEndpoint(false); }
     };
 
+    const handleEditEndpoint = () => {
+        setNewEndpointUrl(team?.endpoint_url || '');
+        setEditingEndpoint(true);
+        setEndpointStatus(null);
+    };
+
+    const handleSaveEndpoint = async () => {
+        if (!newEndpointUrl.trim()) return;
+        setSavingEndpoint(true);
+        try {
+            const res = await fetch(`/api/teams/${team.id}/endpoint`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint_url: newEndpointUrl.trim() }),
+            });
+            if (!res.ok) {
+                const d = await res.json();
+                throw new Error(d.detail || 'Failed to update endpoint');
+            }
+            const updatedTeam = await res.json();
+            setTeam(updatedTeam);
+            localStorage.setItem('team', JSON.stringify(updatedTeam));
+            setEditingEndpoint(false);
+        } catch (e) {
+            setEndpointStatus({ success: false, error: e.message });
+        } finally {
+            setSavingEndpoint(false);
+        }
+    };
+
     if (!team) {
         return (
             <div className="page-container submission-page">
@@ -202,11 +235,51 @@ export default function Submission() {
             <div className="card team-info-card animate-in" style={{ marginTop: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <h3 style={{ color: 'var(--accent-cyan)', fontSize: '1rem', fontWeight: 700 }}>📡 Endpoint</h3>
-                    <button className="btn btn-secondary btn-sm" onClick={testEndpoint} disabled={testingEndpoint}>
-                        {testingEndpoint ? '🔄 Testing...' : '🧪 Test'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {!editingEndpoint && (
+                            <button className="btn btn-secondary btn-sm" onClick={handleEditEndpoint}>
+                                ✏️ Edit
+                            </button>
+                        )}
+                        <button className="btn btn-secondary btn-sm" onClick={testEndpoint} disabled={testingEndpoint || editingEndpoint}>
+                            {testingEndpoint ? '🔄 Testing...' : '🧪 Test'}
+                        </button>
+                    </div>
                 </div>
-                <div className="endpoint-url">{team?.endpoint_url || 'No endpoint configured'}</div>
+                {editingEndpoint ? (
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <input
+                            className="input"
+                            type="url"
+                            value={newEndpointUrl}
+                            onChange={(e) => setNewEndpointUrl(e.target.value)}
+                            placeholder="https://your-llm-endpoint.com/generate"
+                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
+                        />
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setNewEndpointUrl('DUMMY'); }}
+                            title="Use dummy endpoint"
+                        >
+                            🤖
+                        </button>
+                        <button
+                            className="btn btn-primary btn-sm"
+                            onClick={handleSaveEndpoint}
+                            disabled={savingEndpoint || !newEndpointUrl.trim()}
+                        >
+                            {savingEndpoint ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setEditingEndpoint(false)}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                ) : (
+                    <div className="endpoint-url">{team?.endpoint_url || 'No endpoint configured'}</div>
+                )}
                 {endpointStatus && (
                     <div className={`endpoint-result ${endpointStatus.success ? 'success' : 'error'}`}>
                         {endpointStatus.success
@@ -216,7 +289,9 @@ export default function Submission() {
                     </div>
                 )}
                 <div className="team-meta">
-                    <span>Members: {team?.members?.join(', ') || 'No members listed'}</span>
+                    <span>Members: {team?.members?.map((m, i) => (
+                        <span key={i}>{m.name} ({m.roll}){i < team.members.length - 1 ? ', ' : ''}</span>
+                    )) || 'No members listed'}</span>
                     <span>Total Score: <strong style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-mono)' }}>{team?.total_score || 0}</strong></span>
                 </div>
             </div>

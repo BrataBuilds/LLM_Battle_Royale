@@ -8,7 +8,7 @@ export default function Registration() {
     const navigate = useNavigate();
     const [teamName, setTeamName] = useState('');
     const [password, setPassword] = useState('');
-    const [members, setMembers] = useState(['']);
+    const [members, setMembers] = useState([{ name: '', roll: '' }]);
     const [endpointUrl, setEndpointUrl] = useState('');
     const [teams, setTeams] = useState([]);
     const [error, setError] = useState('');
@@ -33,16 +33,16 @@ export default function Registration() {
     }, [subscribe]);
 
     const addMember = () => {
-        if (members.length < 4) setMembers([...members, '']);
+        if (members.length < 4) setMembers([...members, { name: '', roll: '' }]);
     };
 
     const removeMember = (i) => {
         if (members.length > 1) setMembers(members.filter((_, idx) => idx !== i));
     };
 
-    const updateMember = (i, val) => {
+    const updateMember = (i, field, val) => {
         const updated = [...members];
-        updated[i] = val;
+        updated[i] = { ...updated[i], [field]: val };
         setMembers(updated);
     };
 
@@ -51,9 +51,16 @@ export default function Registration() {
         setError('');
         setLoading(true);
 
-        const filteredMembers = members.filter((m) => m.trim());
+        const filteredMembers = members.filter((m) => m.name.trim() && m.roll.trim());
         if (!teamName.trim() || filteredMembers.length === 0) {
-            setError('Team name and at least one member are required');
+            setError('Team name and at least one member (with name and roll number) are required');
+            setLoading(false);
+            return;
+        }
+        // Validate roll numbers are alphanumeric
+        const invalidRoll = filteredMembers.find((m) => !/^[a-zA-Z0-9]+$/.test(m.roll.trim()));
+        if (invalidRoll) {
+            setError('Roll numbers must be alphanumeric (letters and numbers only)');
             setLoading(false);
             return;
         }
@@ -208,15 +215,27 @@ export default function Registration() {
                             <label>Members (1-4)</label>
                             <div className="members-list">
                                 {members.map((member, i) => (
-                                    <div className="member-row" key={i}>
+                                    <div className="member-row" key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                                         <span className="member-number">{i + 1}.</span>
                                         <input
                                             className="input"
                                             type="text"
-                                            placeholder={`Member ${i + 1} name`}
-                                            value={member}
-                                            onChange={(e) => updateMember(i, e.target.value)}
+                                            placeholder={`Name`}
+                                            value={member.name}
+                                            onChange={(e) => updateMember(i, 'name', e.target.value)}
                                             required
+                                            style={{ flex: 2 }}
+                                        />
+                                        <input
+                                            className="input"
+                                            type="text"
+                                            placeholder={`Roll Number`}
+                                            value={member.roll}
+                                            onChange={(e) => updateMember(i, 'roll', e.target.value)}
+                                            pattern="[a-zA-Z0-9]+"
+                                            title="Roll number must be alphanumeric"
+                                            required
+                                            style={{ flex: 1 }}
                                         />
                                         {members.length > 1 && (
                                             <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeMember(i)}>✕</button>
@@ -247,7 +266,11 @@ export default function Registration() {
                     {teams.map((teamData) => (
                         <div className="card team-mini-card" key={teamData.id}>
                             <h4>{teamData.name}</h4>
-                            <div className="members">{teamData.members.join(', ')}</div>
+                            <div className="members">
+                                {teamData.members.map((m, i) => (
+                                    <span key={i}>{m.name} ({m.roll}){i < teamData.members.length - 1 ? ', ' : ''}</span>
+                                ))}
+                            </div>
                             <div style={{ marginTop: '0.4rem', fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {teamData.endpoint_url}
                             </div>

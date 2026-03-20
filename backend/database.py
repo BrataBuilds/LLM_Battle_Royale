@@ -90,6 +90,24 @@ def get_db_connection():
     finally:
         conn.close()
 
+
+def normalize_members(members_data):
+    """Normalize members data to new format with name and roll.
+
+    Handles backward compatibility with old format (list of strings).
+    """
+    normalized = []
+    for m in members_data:
+        if isinstance(m, str):
+            # Old format: just a name string
+            normalized.append({"name": m, "roll": ""})
+        elif isinstance(m, dict):
+            # New format: dict with name and roll
+            normalized.append({"name": m.get("name", ""), "roll": m.get("roll", "")})
+        else:
+            normalized.append({"name": str(m), "roll": ""})
+    return normalized
+
 class TeamRepository:
     """Repository for team-related database operations."""
 
@@ -130,7 +148,7 @@ class TeamRepository:
                 return {
                     "id": row["id"],
                     "name": row["name"],
-                    "members": json.loads(row["members"]),
+                    "members": normalize_members(json.loads(row["members"])),
                     "endpoint_url": row["endpoint_url"],
                     "eliminated": bool(row["eliminated"]),
                     "total_score": row["total_score"],
@@ -150,7 +168,7 @@ class TeamRepository:
                 return {
                     "id": row["id"],
                     "name": row["name"],
-                    "members": json.loads(row["members"]),
+                    "members": normalize_members(json.loads(row["members"])),
                     "endpoint_url": row["endpoint_url"],
                     "eliminated": bool(row["eliminated"]),
                     "total_score": row["total_score"],
@@ -170,7 +188,7 @@ class TeamRepository:
                 return {
                     "id": row["id"],
                     "name": row["name"],
-                    "members": json.loads(row["members"]),
+                    "members": normalize_members(json.loads(row["members"])),
                     "endpoint_url": row["endpoint_url"],
                     "eliminated": bool(row["eliminated"]),
                     "total_score": row["total_score"],
@@ -189,7 +207,7 @@ class TeamRepository:
             return [{
                 "id": row["id"],
                 "name": row["name"],
-                "members": json.loads(row["members"]),
+                "members": normalize_members(json.loads(row["members"])),
                 "endpoint_url": row["endpoint_url"],
                 "eliminated": bool(row["eliminated"]),
                 "total_score": row["total_score"],
@@ -207,7 +225,7 @@ class TeamRepository:
             return [{
                 "id": row["id"],
                 "name": row["name"],
-                "members": json.loads(row["members"]),
+                "members": normalize_members(json.loads(row["members"])),
                 "endpoint_url": row["endpoint_url"],
                 "eliminated": bool(row["eliminated"]),
                 "total_score": row["total_score"],
@@ -237,6 +255,15 @@ class TeamRepository:
             cursor = conn.cursor()
             cursor.execute("UPDATE teams SET seed = ? WHERE id = ?", (seed, team_id))
             conn.commit()
+
+    @staticmethod
+    def update_team_endpoint(team_id: str, endpoint_url: str) -> Optional[Dict]:
+        """Update a team's endpoint URL."""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE teams SET endpoint_url = ? WHERE id = ?", (endpoint_url, team_id))
+            conn.commit()
+        return TeamRepository.get_team_by_id(team_id)
 
 # Initialize database when module is imported
 init_database()
