@@ -2,6 +2,7 @@ import random
 import uuid
 import math
 from backend.models import state
+from backend.database import TeamRepository
 
 
 def seed_teams(mode: str = "random", order: list[str] | None = None):
@@ -22,7 +23,8 @@ def seed_teams(mode: str = "random", order: list[str] | None = None):
 
     for i, team in enumerate(teams):
         team["seed"] = i + 1
-        state.teams[team["id"]] = team
+        # Update seed in the database
+        TeamRepository.set_team_seed(team["id"], i + 1)
 
     state.seeded = True
     return teams
@@ -72,7 +74,7 @@ def generate_bracket():
             match["winner_name"] = team2["name"]
             match["completed"] = True
 
-        state.matches[match_id] = match
+        state.add_match(match)
         matches.append(match)
 
     # Calculate total bracket rounds needed
@@ -116,19 +118,21 @@ def determine_match_winner(match_id: str) -> dict:
         match["winner_id"] = match["team1_id"]
         match["winner_name"] = match["team1_name"]
         if match["team2_id"]:
-            state.teams[match["team2_id"]]["eliminated"] = True
+            TeamRepository.eliminate_team(match["team2_id"])
     else:
         match["winner_id"] = match["team2_id"]
         match["winner_name"] = match["team2_name"]
         if match["team1_id"]:
-            state.teams[match["team1_id"]]["eliminated"] = True
+            TeamRepository.eliminate_team(match["team1_id"])
 
     match["completed"] = True
 
     # Update winner team's total score
-    winner = state.teams.get(match["winner_id"])
-    if winner:
-        winner["total_score"] = max(t1, t2)
+    if match["winner_id"]:
+        TeamRepository.update_team_score(match["winner_id"], max(t1, t2))
+
+    # Persist match changes to database
+    state.update_match(match)
 
     return match
 
@@ -186,7 +190,7 @@ def advance_winners(round_number: int) -> list[dict]:
             match["winner_name"] = state.teams[w1]["name"]
             match["completed"] = True
 
-        state.matches[match_id] = match
+        state.add_match(match)
         new_matches.append(match)
 
     state.current_bracket_round = next_round

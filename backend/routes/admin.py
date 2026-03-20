@@ -10,6 +10,7 @@ from backend.ws_manager import manager
 from backend.bracket import seed_teams, generate_bracket, advance_winners, determine_match_winner
 from backend.logger import log_llm_fetch, log_judge_result
 from backend.questions import ROUND_QUESTIONS
+from backend.database import TeamRepository
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -102,6 +103,7 @@ async def set_sub_round_prompt(round_num: int, sub_round: int, config: SubRoundC
     # Also store on each match dict for convenience
     for match in state.get_matches_for_round(round_num):
         match["sub_round_prompts"][sub_round] = config.prompt
+        state.update_match(match)
 
     state.current_bracket_round = round_num
     state.current_sub_round = sub_round
@@ -170,6 +172,7 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
                 dummy_text = f"[DUMMY] This is a simulated response from {team['name']} for prompt: {prompt[:30]}..."
                 sub["response_text"] = dummy_text
                 sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                state.update_submission(sub)
                 log_llm_fetch(team["name"], "DUMMY", prompt, dummy_text, None)
                 return
 
@@ -190,10 +193,12 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
                         response_text = str(data)
                     sub["response_text"] = response_text
                     sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                    state.update_submission(sub)
                     log_llm_fetch(team["name"], team["endpoint_url"], prompt, response_text, None)
             except Exception as e:
                 sub["fetch_error"] = str(e)[:200]
                 sub["timestamp"] = __import__("datetime").datetime.now().isoformat()
+                state.update_submission(sub)
                 log_llm_fetch(team["name"], team["endpoint_url"], prompt, None, str(e)[:200])
 
         await asyncio.gather(fetch_one(team1), fetch_one(team2))
@@ -222,25 +227,27 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
         if t1_sub:
             t1_sub["score"] = judge_result["team_a_score"] if t1_response else 0
             t1_sub["reasoning"] = judge_result["reasoning"]
+            state.update_submission(t1_sub)
             log_judge_result(team1["name"], category, t1_sub["score"], t1_sub["reasoning"])
         if t2_sub:
             t2_sub["score"] = judge_result["team_b_score"] if t2_response else 0
             t2_sub["reasoning"] = judge_result["reasoning"]
+            state.update_submission(t2_sub)
             log_judge_result(team2["name"], category, t2_sub["score"], t2_sub["reasoning"])
 
-        # Update cumulative team scores
+        # Update cumulative team scores in database
         for tid in [team1["id"], team2["id"]]:
-            team_obj = state.teams.get(tid)
-            if team_obj:
-                team_obj["total_score"] = sum(
-                    s["score"] for s in state.submissions.values()
-                    if s["team_id"] == tid and s["score"] is not None
-                )
+            total_score = sum(
+                s["score"] for s in state.submissions.values()
+                if s["team_id"] == tid and s["score"] is not None
+            )
+            TeamRepository.update_team_score(tid, total_score)
 
         # Update match sub-round totals
         scores = state.get_match_total_scores(match["id"])
         match["team1_total"] = scores["team1_total"]
         match["team2_total"] = scores["team2_total"]
+        state.update_match(match)
 
         await manager.broadcast("match_scored", {
             "match_id": match["id"],
@@ -282,6 +289,7 @@ async def run_sub_round(round_num: int, sub_round: int, _=Depends(verify_admin))
     for match in active_matches:
         if sub_round not in match["sub_rounds_completed"]:
             match["sub_rounds_completed"].append(sub_round)
+        state.update_match(match)
 
     await manager.broadcast("sub_round_complete", {
         "bracket_round": round_num,
@@ -436,10 +444,12 @@ async def override_score(override: ScoreOverride, _=Depends(verify_admin)):
     sub["score"] = override.new_score
     if override.reasoning:
         sub["reasoning"] = override.reasoning
+    state.update_submission(sub)
 
     team = state.teams.get(sub["team_id"])
     if team:
-        team["total_score"] = team["total_score"] - old_score + override.new_score
+        new_total = team["total_score"] - old_score + override.new_score
+        TeamRepository.update_team_score(sub["team_id"], new_total)
 
     # Update match totals
     match = state.matches.get(sub["match_id"])
@@ -447,6 +457,7 @@ async def override_score(override: ScoreOverride, _=Depends(verify_admin)):
         scores = state.get_match_total_scores(match["id"])
         match["team1_total"] = scores["team1_total"]
         match["team2_total"] = scores["team2_total"]
+        state.update_match(match)
 
     await manager.broadcast("score_update", {"submission": sub})
     return {"message": "Score overridden", "submission": sub}
@@ -507,42 +518,47 @@ async def reset_bracket_round(round_num: int, _=Depends(verify_admin)):
     br["sub_rounds_completed"] = []
     br["sub_round_prompts"] = {}
     br["completed"] = False
-    
+
     matches = state.get_matches_for_round(round_num)
     match_ids = {m["id"] for m in matches}
-    
-    # Delete all submissions tied to this round's matches
+
+    # Delete all submissions tied to this round's matches (from memory and database)
+    from backend.database import SubmissionRepository
     keys_to_delete = [
         k for k, sub in state.submissions.items()
         if sub["match_id"] in match_ids
     ]
     for k in keys_to_delete:
-        del state.submissions[k]
-        
+        del state._submissions[k]
+    for match_id in match_ids:
+        SubmissionRepository.delete_submissions_for_match(match_id)
+
     # Reset match totals
     for match in matches:
         match["team1_total"] = 0
         match["team2_total"] = 0
         match["winner_id"] = None
-        match["sub_round_prompts"] = {}
-        
+        match["winner_name"] = None
+        match["sub_round_prompts"] = {1: None, 2: None, 3: None}
+        match["sub_rounds_completed"] = []
+        state.update_match(match)
+
     # Recalculate global team scores
     for match in matches:
         for tid in [match["team1_id"], match["team2_id"]]:
             if not tid: continue
-            team_obj = state.teams.get(tid)
-            if team_obj:
-                team_obj["total_score"] = sum(
-                    s["score"] for s in state.submissions.values()
-                    if s["team_id"] == tid and s["score"] is not None
-                )
-    
+            total_score = sum(
+                s["score"] for s in state.submissions.values()
+                if s["team_id"] == tid and s["score"] is not None
+            )
+            TeamRepository.update_team_score(tid, total_score)
+
     await manager.broadcast("bracket_update", {
         "matches": list(state.matches.values()),
         "current_bracket_round": state.current_bracket_round,
         "total_bracket_rounds": state.total_bracket_rounds,
     })
-    
+
     return {"message": f"Bracket round {round_num} successfully reset."}
 
 
@@ -550,6 +566,6 @@ async def reset_bracket_round(round_num: int, _=Depends(verify_admin)):
 
 @router.post("/reset")
 async def reset(_=Depends(verify_admin)):
-    state.__init__()
+    state.clear_all()
     await manager.broadcast("reset", {})
     return {"message": "State reset"}

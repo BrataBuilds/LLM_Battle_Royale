@@ -165,6 +165,104 @@ LLM_battle_Royale/
 
 ---
 
+## 🗄️ Database Structure (PostgreSQL)
+
+The application uses **PostgreSQL** with the `psycopg2` driver. Configure the connection using environment variables.
+
+### Environment Variables
+
+| Variable            | Default         | Description                     |
+|---------------------|----------------|---------------------------------|
+| `POSTGRES_HOST`     | `localhost`    | PostgreSQL server hostname      |
+| `POSTGRES_PORT`     | `5432`         | PostgreSQL server port          |
+| `POSTGRES_USER`     | `postgres`     | PostgreSQL username             |
+| `POSTGRES_PASSWORD` | (empty)        | PostgreSQL password             |
+| `POSTGRES_DATABASE` | `battle_royale`| Database name                   |
+
+### Tables
+
+#### `teams`
+Stores registered teams and their configuration.
+
+| Column         | Type             | Constraints                     | Description                              |
+|----------------|------------------|---------------------------------|------------------------------------------|
+| `id`           | VARCHAR(8)       | PRIMARY KEY                     | Unique team identifier (UUID prefix)     |
+| `name`         | VARCHAR(255)     | UNIQUE, NOT NULL                | Team display name                        |
+| `password_hash`| VARCHAR(64)      | NOT NULL                        | SHA-256 hashed password                  |
+| `members`      | JSONB            | NOT NULL                        | Array of `{name, roll}` objects          |
+| `endpoint_url` | TEXT             | NOT NULL                        | Team's LLM API endpoint URL              |
+| `eliminated`   | BOOLEAN          | DEFAULT FALSE                   | Whether team is eliminated               |
+| `total_score`  | DOUBLE PRECISION | DEFAULT 0                       | Cumulative score across all matches      |
+| `seed`         | INTEGER          | NULL                            | Tournament seeding position              |
+| `is_admin`     | BOOLEAN          | DEFAULT FALSE                   | Whether team has admin privileges        |
+| `created_at`   | TIMESTAMP        | DEFAULT CURRENT_TIMESTAMP       | Registration timestamp                   |
+
+**Members JSONB Format:**
+```json
+[
+  {"name": "Alice", "roll": "2024001"},
+  {"name": "Bob", "roll": "2024002"}
+]
+```
+
+#### `matches`
+Stores tournament bracket matches.
+
+| Column         | Type             | Constraints                     | Description                              |
+|----------------|------------------|---------------------------------|------------------------------------------|
+| `id`           | VARCHAR(36)      | PRIMARY KEY                     | Unique match identifier (UUID)           |
+| `round_number` | INTEGER          | NOT NULL                        | Tournament round (1, 2, 3, etc.)         |
+| `match_index`  | INTEGER          | NOT NULL                        | Match position within the round          |
+| `team1_id`     | VARCHAR(8)       | FK → teams(id), ON DELETE SET NULL | First team's ID                      |
+| `team2_id`     | VARCHAR(8)       | FK → teams(id), ON DELETE SET NULL | Second team's ID                     |
+| `team1_name`   | VARCHAR(255)     | NULL                            | First team's name (denormalized)         |
+| `team2_name`   | VARCHAR(255)     | NULL                            | Second team's name (denormalized)        |
+| `team1_total`  | DOUBLE PRECISION | DEFAULT 0                       | First team's total score in match        |
+| `team2_total`  | DOUBLE PRECISION | DEFAULT 0                       | Second team's total score in match       |
+| `winner_id`    | VARCHAR(8)       | FK → teams(id), ON DELETE SET NULL | Winning team's ID                    |
+| `completed`    | BOOLEAN          | DEFAULT FALSE                   | Whether match is finished                |
+| `created_at`   | TIMESTAMP        | DEFAULT CURRENT_TIMESTAMP       | Match creation timestamp                 |
+
+#### `submissions`
+Stores individual sub-round submissions and scores.
+
+| Column              | Type             | Constraints                     | Description                              |
+|---------------------|------------------|---------------------------------|------------------------------------------|
+| `id`                | VARCHAR(36)      | PRIMARY KEY                     | Unique submission identifier (UUID)      |
+| `team_id`           | VARCHAR(8)       | FK → teams(id), ON DELETE CASCADE, NOT NULL | Submitting team's ID         |
+| `team_name`         | VARCHAR(255)     | NOT NULL                        | Team name (denormalized)                 |
+| `match_id`          | VARCHAR(36)      | FK → matches(id), ON DELETE CASCADE, NOT NULL | Associated match ID         |
+| `sub_round`         | INTEGER          | NOT NULL                        | Sub-round number (1, 2, or 3)            |
+| `sub_round_category`| VARCHAR(50)      | NOT NULL                        | Category: "Complex Puzzle", "Math", etc. |
+| `prompt_sent`       | TEXT             | NULL                            | The prompt sent to the team's endpoint   |
+| `response_text`     | TEXT             | NULL                            | The LLM's response                       |
+| `timestamp`         | TIMESTAMP        | NULL                            | When the response was received           |
+| `score`             | DOUBLE PRECISION | NULL                            | Gemini judge's score (0-100)             |
+| `reasoning`         | TEXT             | NULL                            | Gemini's scoring rationale               |
+| `fetch_error`       | TEXT             | NULL                            | Error message if endpoint call failed    |
+| `created_at`        | TIMESTAMP        | DEFAULT CURRENT_TIMESTAMP       | Record creation timestamp                |
+
+### Entity Relationship Diagram
+
+```
+┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+│    teams     │       │   matches    │       │ submissions  │
+├──────────────┤       ├──────────────┤       ├──────────────┤
+│ id (PK)      │◄──┬───│ team1_id(FK) │   ┌───│ team_id (FK) │
+│ name         │   │   │ team2_id(FK) │◄──┼───│ match_id(FK) │
+│ password_hash│   │   │ winner_id(FK)│   │   │ sub_round    │
+│ members      │   │   │ round_number │   │   │ score        │
+│ endpoint_url │   │   │ match_index  │   │   │ response_text│
+│ eliminated   │   │   │ team1_total  │   │   │ ...          │
+│ total_score  │   └───│ team2_total  │───┘   └──────────────┘
+│ seed         │       │ completed    │
+│ is_admin     │       └──────────────┘
+│ created_at   │
+└──────────────┘
+```
+
+---
+
 ## 📜 License
 
 MIT

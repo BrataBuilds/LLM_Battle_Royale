@@ -179,7 +179,7 @@ You MUST respond with ONLY valid JSON in this exact format, no markdown, no prea
                 try:
                     return await client.aio.models.generate_content(
                         # model="gemini-3.1-flash-lite-preview",
-                        model="gemma-27b-it",
+                        model="gemma-3-27b-it",
                         contents=scoring_prompt,
                     )
                 except Exception as e:

@@ -154,7 +154,17 @@ export default function AdminDashboard() {
                 body: body ? JSON.stringify(body) : null,
             });
             if (res.status === 401) { handleLogout(); return; }
-            const data = await res.json();
+
+            // Handle non-JSON responses gracefully
+            const contentType = res.headers.get('content-type');
+            let data;
+            if (contentType && contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const text = await res.text();
+                throw new Error(text || `Server error: ${res.status}`);
+            }
+
             if (!res.ok) throw new Error(data.detail || 'Error');
             await fetchState();
             return data;
