@@ -2,16 +2,21 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 import uuid
-import time
-import math
+from backend.database import TeamRepository
 
 
 # ── Pydantic request/response models ────────────────────────────────
 
 class TeamCreate(BaseModel):
     name: str
+    password: str = Field(..., min_length=4)  # Team password for authentication
     members: list[str] = Field(..., min_length=1, max_length=4)
     endpoint_url: str  # Team's /generate endpoint URL
+
+
+class TeamLogin(BaseModel):
+    name: str
+    password: str
 
 
 class TeamOut(BaseModel):
@@ -47,7 +52,7 @@ SUB_ROUND_CATEGORIES = {
 
 class AppState:
     def __init__(self):
-        self.teams: dict[str, dict] = {}
+        # Remove teams from in-memory storage - now using SQLite database
         self.matches: dict[str, dict] = {}
         self.submissions: dict[str, dict] = {}
         self.bracket_rounds: dict[int, dict] = {}  # bracket round metadata
@@ -59,28 +64,29 @@ class AppState:
         self.bracket_generated: bool = False
         self.total_bracket_rounds: int = 0
 
-    def add_team(self, name: str, members: list[str], endpoint_url: str) -> dict:
-        team_id = str(uuid.uuid4())[:8]
-        team = {
-            "id": team_id,
-            "name": name,
-            "members": members,
-            "endpoint_url": endpoint_url,
-            "eliminated": False,
-            "total_score": 0,
-            "seed": None,
-        }
-        self.teams[team_id] = team
-        return team
+    def add_team(self, name: str, password: str, members: list[str], endpoint_url: str) -> dict:
+        """Add a team using the database repository."""
+        return TeamRepository.create_team(name, password, members, endpoint_url)
 
     def get_team_by_name(self, name: str) -> Optional[dict]:
-        for t in self.teams.values():
-            if t["name"].lower() == name.lower():
-                return t
-        return None
+        """Get a team by name using the database repository."""
+        return TeamRepository.get_team_by_name(name)
+
+    def get_team_by_id(self, team_id: str) -> Optional[dict]:
+        """Get a team by ID using the database repository."""
+        return TeamRepository.get_team_by_id(team_id)
+
+    def authenticate_team(self, name: str, password: str) -> Optional[dict]:
+        """Authenticate a team using the database repository."""
+        return TeamRepository.authenticate_team(name, password)
+
+    def get_all_teams(self) -> list[dict]:
+        """Get all teams using the database repository."""
+        return TeamRepository.get_all_teams()
 
     def get_active_teams(self) -> list[dict]:
-        return [t for t in self.teams.values() if not t["eliminated"]]
+        """Get active teams using the database repository."""
+        return TeamRepository.get_active_teams()
 
     def get_matches_for_round(self, round_number: int) -> list[dict]:
         """Return all matches for a given bracket round, sorted by match_index."""
@@ -95,10 +101,13 @@ class AppState:
     def add_submission(self, team_id: str, match_id: str, sub_round: int, prompt_sent: str) -> dict:
         """Add a submission for a team in a specific match + sub-round."""
         sub_id = str(uuid.uuid4())[:8]
+        team = self.get_team_by_id(team_id)
+        team_name = team["name"] if team else "Unknown Team"
+
         submission = {
             "id": sub_id,
             "team_id": team_id,
-            "team_name": self.teams[team_id]["name"],
+            "team_name": team_name,
             "match_id": match_id,
             "sub_round": sub_round,
             "sub_round_category": SUB_ROUND_CATEGORIES[sub_round],
@@ -150,13 +159,13 @@ class AppState:
 
     def get_standings(self) -> list[dict]:
         """Return all teams sorted by total score, active first."""
-        teams = list(self.teams.values())
+        teams = self.get_all_teams()
         teams.sort(key=lambda t: (not t["eliminated"], t["total_score"]), reverse=True)
         return teams
 
     def to_dict(self) -> dict:
         return {
-            "teams": list(self.teams.values()),
+            "teams": self.get_all_teams(),
             "submissions": list(self.submissions.values()),
             "matches": list(self.matches.values()),
             "bracket_rounds": self.bracket_rounds,

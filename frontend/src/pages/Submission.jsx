@@ -14,8 +14,27 @@ export default function Submission() {
     const { subscribe } = useWebSocket();
     const location = useLocation();
     const navigate = useNavigate();
-    const [team, setTeam] = useState(location.state?.team || null);
+
+    // Load team from location.state first, then fall back to localStorage
+    const [team, setTeam] = useState(() => {
+        if (location.state?.team) {
+            // Also persist to localStorage when coming from registration
+            localStorage.setItem('team', JSON.stringify(location.state.team));
+            return location.state.team;
+        }
+        // Try to restore from localStorage (handles refresh/tab switch)
+        const stored = localStorage.getItem('team');
+        if (stored) {
+            try {
+                return JSON.parse(stored);
+            } catch {
+                localStorage.removeItem('team');
+            }
+        }
+        return null;
+    });
     const [teamNameInput, setTeamNameInput] = useState('');
+    const [passwordInput, setPasswordInput] = useState('');
     const [loginError, setLoginError] = useState('');
     const [appData, setAppData] = useState(null);
     const [endpointStatus, setEndpointStatus] = useState(null);
@@ -23,10 +42,15 @@ export default function Submission() {
     const [matchUpdates, setMatchUpdates] = useState({});
 
     const fetchTeamData = async () => {
-        if (!team) return;
+        if (!team?.id) return;
         try {
-            const teamRes = await fetch(`/api/teams/${team.id}`);
-            if (teamRes.ok) setTeam(await teamRes.json());
+            const teamRes = await fetch(`/api/teams/${team?.id}`);
+            if (teamRes.ok) {
+                const updatedTeam = await teamRes.json();
+                setTeam(updatedTeam);
+                // Keep localStorage in sync
+                localStorage.setItem('team', JSON.stringify(updatedTeam));
+            }
             const stateRes = await fetch('/api/state');
             setAppData(await stateRes.json());
         } catch (e) { console.error(e); }
@@ -39,10 +63,10 @@ export default function Submission() {
             subscribe('bracket_update', () => fetchTeamData()),
             subscribe('match_result', () => fetchTeamData()),
             subscribe('match_update', (data) => {
-                if (!team) return;
+                if (!team?.id) return;
                 const d = data.data || data;
                 // Only track updates relevant to this team
-                if (d.team1_id === team.id || d.team2_id === team.id) {
+                if (d.team1_id === team?.id || d.team2_id === team?.id) {
                     setMatchUpdates(prev => ({
                         ...prev,
                         [`${d.match_id}_${d.sub_round}`]: d,
@@ -62,24 +86,39 @@ export default function Submission() {
             const res = await fetch('/api/teams/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: teamNameInput.trim() }),
+                body: JSON.stringify({
+                    name: teamNameInput.trim(),
+                    password: passwordInput.trim()
+                }),
             });
             if (!res.ok) {
                 const d = await res.json();
                 throw new Error(d.detail || 'Login failed');
             }
-            setTeam(await res.json());
+            const teamData = await res.json();
+            // Persist login to localStorage
+            localStorage.setItem('team', JSON.stringify(teamData));
+            setTeam(teamData);
+            window.location.reload()
         } catch (e) { setLoginError(e.message); }
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem('team');
+        localStorage.clear();
+        setTeam(null);
+        navigate("/submit");
+        window.location.reload();
+    };
+
     const testEndpoint = async () => {
-        if (!team) return;
+        if (!team?.endpoint_url) return;
         setTestingEndpoint(true);
         try {
             const res = await fetch('/api/teams/test-endpoint', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: team.endpoint_url }),
+                body: JSON.stringify({ url: team?.endpoint_url }),
             });
             setEndpointStatus(await res.json());
         } catch (e) { setEndpointStatus({ success: false, error: e.message }); }
@@ -97,6 +136,10 @@ export default function Submission() {
                             <label>Team Name</label>
                             <input className="input" type="text" placeholder="Enter your team name" value={teamNameInput} onChange={(e) => setTeamNameInput(e.target.value)} required />
                         </div>
+                        <div className="form-group">
+                            <label>Password</label>
+                            <input className="input" type="password" placeholder="Enter your password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} required />
+                        </div>
                         {loginError && <p style={{ color: 'var(--accent-red)', marginBottom: '1rem', fontSize: '0.9rem' }}>{loginError}</p>}
                         <button className="btn btn-primary" type="submit">Log In</button>
                     </form>
@@ -105,8 +148,8 @@ export default function Submission() {
         );
     }
 
-    const matches = (appData?.matches || []).filter(m => m.team1_id === team.id || m.team2_id === team.id);
-    const submissions = (appData?.submissions || []).filter(s => s.team_id === team.id);
+    const matches = (appData?.matches || []).filter(m => m.team1_id === team?.id || m.team2_id === team?.id);
+    const submissions = (appData?.submissions || []).filter(s => s.team_id === team?.id);
 
     // Find current active match (not completed)
     const activeMatch = matches.find(m => !m.completed);
@@ -125,7 +168,7 @@ export default function Submission() {
 
     // Helper to personalize data (your vs opponent)
     const personalize = (update) => {
-        const isTeam1 = update.team1_id === team.id;
+        const isTeam1 = update.team1_id === team?.id;
         return {
             yourResponse: isTeam1 ? update.team1_response : update.team2_response,
             opponentResponse: isTeam1 ? update.team2_response : update.team1_response,
@@ -139,12 +182,19 @@ export default function Submission() {
 
     return (
         <div className="page-container submission-page">
-            <h1 className="page-title">Team Status</h1>
-            <p className="page-subtitle">
-                <strong style={{ color: 'var(--accent-cyan)' }}>{team.name}</strong>
-                {team.seed && <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>Seed #{team.seed}</span>}
-                {team.eliminated && <span className="badge badge-red" style={{ marginLeft: '0.75rem' }}>ELIMINATED</span>}
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                    <h1 className="page-title">Team Status</h1>
+                    <p className="page-subtitle">
+                        <strong style={{ color: 'var(--accent-cyan)' }}>{team?.name || 'Loading...'}</strong>
+                        {team?.seed && <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>Seed #{team.seed}</span>}
+                        {team?.eliminated && <span className="badge badge-red" style={{ marginLeft: '0.75rem' }}>ELIMINATED</span>}
+                    </p>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
+                    Logout
+                </button>
+            </div>
 
             <Timer />
 
@@ -156,7 +206,7 @@ export default function Submission() {
                         {testingEndpoint ? '🔄 Testing...' : '🧪 Test'}
                     </button>
                 </div>
-                <div className="endpoint-url">{team.endpoint_url}</div>
+                <div className="endpoint-url">{team?.endpoint_url || 'No endpoint configured'}</div>
                 {endpointStatus && (
                     <div className={`endpoint-result ${endpointStatus.success ? 'success' : 'error'}`}>
                         {endpointStatus.success
@@ -166,8 +216,8 @@ export default function Submission() {
                     </div>
                 )}
                 <div className="team-meta">
-                    <span>Members: {team.members.join(', ')}</span>
-                    <span>Total Score: <strong style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-mono)' }}>{team.total_score || 0}</strong></span>
+                    <span>Members: {team?.members?.join(', ') || 'No members listed'}</span>
+                    <span>Total Score: <strong style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-mono)' }}>{team?.total_score || 0}</strong></span>
                 </div>
             </div>
 
@@ -179,7 +229,7 @@ export default function Submission() {
                             ⚔️ MATCH IN PROGRESS
                         </h2>
                         <p style={{ marginBottom: '2rem', fontSize: '1.2rem', color: 'var(--text-secondary)' }}>
-                            You are currently battling <strong style={{ color: 'var(--accent-red)' }}>{activeMatch.team1_id === team.id ? activeMatch.team2_name : activeMatch.team1_name}</strong>.
+                            You are currently battling <strong style={{ color: 'var(--accent-red)' }}>{activeMatch.team1_id === team?.id ? activeMatch.team2_name : activeMatch.team1_name}</strong>.
                         </p>
                         <button 
                             className="btn btn-primary" 
@@ -197,17 +247,17 @@ export default function Submission() {
                 <h2 className="section-title">Your Matches</h2>
                 <div className="rounds-grid">
                     {matches.map((match) => {
-                        const isTeam1 = match.team1_id === team.id;
+                        const isTeam1 = match.team1_id === team?.id;
                         const opponentName = isTeam1 ? match.team2_name : match.team1_name;
                         const myTotal = isTeam1 ? match.team1_total : match.team2_total;
                         const theirTotal = isTeam1 ? match.team2_total : match.team1_total;
-                        const won = match.winner_id === team.id;
-                        const lost = match.completed && match.winner_id !== team.id;
+                        const won = match.winner_id === team?.id;
+                        const lost = match.completed && match.winner_id !== team?.id;
                         const matchSubs = submissions.filter(s => s.match_id === match.id);
 
                         // Get opponent submissions for this match
                         const opponentSubs = (appData?.submissions || []).filter(
-                            s => s.match_id === match.id && s.team_id !== team.id
+                            s => s.match_id === match.id && s.team_id !== team?.id
                         );
 
                         return (

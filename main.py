@@ -14,6 +14,8 @@ from backend.routes.submissions import router as submissions_router
 from backend.routes.admin import router as admin_router
 from backend.ws_manager import manager
 from backend.models import state
+# Import database to ensure it's initialized
+import backend.database
 
 app = FastAPI(title="InferenceX LLM Battle Royale", version="2.0.0")
 
@@ -36,7 +38,7 @@ app.include_router(admin_router)
 async def health():
     return {
         "status": "ok",
-        "teams": len(state.teams),
+        "teams": len(state.get_all_teams()),
         "bracket_round": state.current_bracket_round,
         "sub_round": state.current_sub_round,
     }

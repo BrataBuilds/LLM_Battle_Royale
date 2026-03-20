@@ -7,6 +7,7 @@ export default function Registration() {
     const { subscribe } = useWebSocket();
     const navigate = useNavigate();
     const [teamName, setTeamName] = useState('');
+    const [password, setPassword] = useState('');
     const [members, setMembers] = useState(['']);
     const [endpointUrl, setEndpointUrl] = useState('');
     const [teams, setTeams] = useState([]);
@@ -56,6 +57,11 @@ export default function Registration() {
             setLoading(false);
             return;
         }
+        if (!password.trim() || password.length < 4) {
+            setError('Password is required and must be at least 4 characters long');
+            setLoading(false);
+            return;
+        }
         if (!endpointUrl.trim()) {
             setError('LLM endpoint URL is required');
             setLoading(false);
@@ -68,6 +74,7 @@ export default function Registration() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: teamName.trim(),
+                    password: password.trim(),
                     members: filteredMembers,
                     endpoint_url: endpointUrl.trim(),
                 }),
@@ -79,6 +86,8 @@ export default function Registration() {
             }
 
             const team = await res.json();
+            // Persist login in localStorage so it survives page refresh/tab switch
+            localStorage.setItem('team', JSON.stringify(team));
             // Automatically log them in and navigate to the Team Status page
             navigate('/submit', { state: { team } });
 
@@ -106,6 +115,22 @@ export default function Registration() {
                             onChange={(e) => setTeamName(e.target.value)}
                             required
                         />
+                    </div>
+
+                    <div className="form-group">
+                        <label>Password</label>
+                        <input
+                            className="input"
+                            type="password"
+                            placeholder="Enter password (min 4 characters)"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            minLength={4}
+                            required
+                        />
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                            This password will be used to log into your team account during the tournament
+                        </p>
                     </div>
 
                         <div className="form-group">

@@ -74,7 +74,8 @@ You MUST respond with ONLY valid JSON in this exact format, no other text:
             for attempt in range(3):
                 try:
                     return await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite-preview",
+                        # model="gemini-3.1-flash-lite-preview",
+                        model="gemma-27b-it",
                         contents=scoring_prompt,
                     )
                 except Exception as e:
@@ -177,7 +178,8 @@ You MUST respond with ONLY valid JSON in this exact format, no markdown, no prea
             for attempt in range(3):
                 try:
                     return await client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite-preview",
+                        # model="gemini-3.1-flash-lite-preview",
+                        model="gemma-27b-it",
                         contents=scoring_prompt,
                     )
                 except Exception as e:

@@ -5,4 +5,6 @@
 5. Prevent Multiple registrations
 6. Judge Model changed to gemma-27b-it
 7. Remove access to problematic APIs and routes
-8. 
+8. No admin view and control for all the teams and details of the teams
+9. Disable /api/ routes for non admin users
+10. Remove score and eliminated flags from localstorage

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import time
-from backend.models import state, TeamCreate, TeamOut
+from backend.models import state, TeamCreate, TeamOut, TeamLogin
 from backend.ws_manager import manager
 
 router = APIRouter(prefix="/api/teams", tags=["teams"])
@@ -16,35 +16,38 @@ async def register_team(team: TeamCreate):
     if len(team.members) < 1 or len(team.members) > 4:
         raise HTTPException(status_code=400, detail="Teams must have 1-4 members")
 
+    if len(team.password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters long")
+
     # Basic endpoint URL validation
     url = team.endpoint_url.strip()
     if not url.startswith(("http://", "https://")) and url != "DUMMY":
         raise HTTPException(status_code=400, detail="Endpoint URL must start with http:// or https:// (or be 'DUMMY' for testing)")
 
-    new_team = state.add_team(team.name, team.members, url)
+    new_team = state.add_team(team.name, team.password, team.members, url)
     await manager.broadcast("team_registered", new_team)
     return new_team
 
 
 @router.get("", response_model=list[TeamOut])
 async def list_teams():
-    return list(state.teams.values())
+    return state.get_all_teams()
 
 
 @router.get("/{team_id}", response_model=TeamOut)
 async def get_team(team_id: str):
-    if team_id not in state.teams:
+    team = state.get_team_by_id(team_id)
+    if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    return state.teams[team_id]
+    return team
 
 
 @router.post("/login")
-async def login_team(data: dict):
-    """Simple login by team name — returns team data."""
-    name = data.get("name", "")
-    team = state.get_team_by_name(name)
+async def login_team(login_data: TeamLogin):
+    """Authenticate team with name and password — returns team data."""
+    team = state.authenticate_team(login_data.name, login_data.password)
     if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
+        raise HTTPException(status_code=401, detail="Invalid team name or password")
     return team
 
 
